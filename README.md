@@ -4,6 +4,8 @@
   </a>
 </p>
 
+> This is the HardLlama fork. See [HARDLLAMA.md](HARDLLAMA.md) for what's different.
+
 # Ollama
 
 Start building with open models. Access the latest releases locally or in the cloud with complete privacy.
