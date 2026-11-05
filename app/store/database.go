@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -14,7 +15,7 @@ import (
 
 // currentSchemaVersion defines the current database schema version.
 // Increment this when making schema changes that require migrations.
-const currentSchemaVersion = 19
+const currentSchemaVersion = 20
 
 // database wraps the SQLite connection.
 // SQLite handles its own locking for concurrent access:
@@ -24,11 +25,14 @@ const currentSchemaVersion = 19
 // This means we don't need application-level locks for database operations.
 type database struct {
 	conn *sql.DB
+
+	vaultEnabled atomic.Bool
+	vault        atomic.Pointer[vaultCipher]
 }
 
 func newDatabase(dbPath string) (*database, error) {
 	// Open database connection
-	conn, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000&_txlock=immediate")
+	conn, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000&_txlock=immediate&_secure_delete=on")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -45,6 +49,11 @@ func newDatabase(dbPath string) (*database, error) {
 	if err := db.init(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("initialize database: %w", err)
+	}
+
+	if err := db.loadVaultState(); err != nil {
+		conn.Close()
+		return nil, err
 	}
 
 	return db, nil
@@ -151,6 +160,15 @@ func (db *database) init() error {
 		email TEXT NOT NULL DEFAULT '',
 		plan TEXT NOT NULL DEFAULT '',
 		cached_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS vault (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		salt BLOB NOT NULL,
+		argon_time INTEGER NOT NULL,
+		argon_memory INTEGER NOT NULL,
+		argon_lanes INTEGER NOT NULL,
+		wrapped_key BLOB NOT NULL
 	);
 	`, currentSchemaVersion)
 
@@ -291,6 +309,12 @@ func (db *database) migrate() error {
 				return fmt.Errorf("migrate v18 to v19: %w", err)
 			}
 			version = 19
+		case 19:
+			// add vault table for chat encryption
+			if err := db.migrateV19ToV20(); err != nil {
+				return fmt.Errorf("migrate v19 to v20: %w", err)
+			}
+			version = 20
 		default:
 			// If we have a version we don't recognize, just set it to current
 			// This might happen during development
@@ -298,6 +322,25 @@ func (db *database) migrate() error {
 		}
 	}
 
+	return nil
+}
+
+// migrateV19ToV20 adds the vault table for chat encryption
+func (db *database) migrateV19ToV20() error {
+	_, err := db.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS vault (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			salt BLOB NOT NULL,
+			argon_time INTEGER NOT NULL,
+			argon_memory INTEGER NOT NULL,
+			argon_lanes INTEGER NOT NULL,
+			wrapped_key BLOB NOT NULL
+		);
+		UPDATE settings SET schema_version = 20;
+	`)
+	if err != nil {
+		return fmt.Errorf("create vault table: %w", err)
+	}
 	return nil
 }
 
@@ -689,6 +732,13 @@ func (db *database) getAllChats() ([]Chat, error) {
 
 		chat.CreatedAt = createdAt
 
+		if chat.Title, err = db.open("title", chat.Title); err != nil {
+			return nil, err
+		}
+		if firstUserContent, err = db.open("content", firstUserContent); err != nil {
+			return nil, err
+		}
+
 		// Add a dummy first user message for the UI to display
 		// This is just for the excerpt, full messages are loaded when needed
 		chat.Messages = []Message{}
@@ -735,9 +785,16 @@ func (db *database) getChatWithOptions(id string, loadAttachmentData bool) (*Cha
 	}
 
 	chat.CreatedAt = createdAt
+	if chat.Title, err = db.open("title", chat.Title); err != nil {
+		return nil, err
+	}
 	if browserState.Valid && browserState.String != "" {
+		state, err := db.open("browser_state", browserState.String)
+		if err != nil {
+			return nil, err
+		}
 		var raw json.RawMessage
-		if err := json.Unmarshal([]byte(browserState.String), &raw); err == nil {
+		if err := json.Unmarshal([]byte(state), &raw); err == nil {
 			chat.BrowserState = raw
 		}
 	}
@@ -775,10 +832,17 @@ func (db *database) saveChat(chat Chat) error {
 	if chat.BrowserState != nil {
 		browserState = sql.NullString{String: string(chat.BrowserState), Valid: true}
 	}
+	if browserState, err = db.sealNull("browser_state", browserState); err != nil {
+		return err
+	}
+	title, err := db.seal("title", chat.Title)
+	if err != nil {
+		return err
+	}
 
 	_, err = tx.Exec(query,
 		chat.ID,
-		chat.Title,
+		title,
 		chat.CreatedAt,
 		browserState,
 	)
@@ -813,11 +877,20 @@ func (db *database) saveChat(chat Chat) error {
 
 // updateChatBrowserState updates only the browser_state for a chat
 func (db *database) updateChatBrowserState(chatID string, state json.RawMessage) error {
-	_, err := db.conn.Exec(`UPDATE chats SET browser_state = ? WHERE id = ?`, string(state), chatID)
+	tx, err := db.conn.Begin()
 	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	sealed, err := db.seal("browser_state", string(state))
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE chats SET browser_state = ? WHERE id = ?`, sealed, chatID); err != nil {
 		return fmt.Errorf("update chat browser state: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (db *database) deleteChat(id string) error {
@@ -874,10 +947,21 @@ func (db *database) updateLastMessage(chatID string, msg Message) error {
 		}
 		toolResultJSON = sql.NullString{String: string(resultBytes), Valid: true}
 	}
+	if toolResultJSON, err = db.sealNull("tool_result", toolResultJSON); err != nil {
+		return err
+	}
+	content, err := db.seal("content", msg.Content)
+	if err != nil {
+		return err
+	}
+	thinking, err := db.seal("thinking", msg.Thinking)
+	if err != nil {
+		return err
+	}
 
 	result, err := tx.Exec(query,
-		msg.Content,
-		msg.Thinking,
+		content,
+		thinking,
 		modelName,
 		msg.UpdatedAt,
 		thinkingTimeStart,
@@ -984,6 +1068,13 @@ func (db *database) getMessages(chatID string, loadAttachmentData bool) ([]Messa
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 
+		if msg.Content, err = db.open("content", msg.Content); err != nil {
+			return nil, err
+		}
+		if msg.Thinking, err = db.open("thinking", msg.Thinking); err != nil {
+			return nil, err
+		}
+
 		attachments, err := db.getAttachments(messageID, loadAttachmentData)
 		if err != nil {
 			return nil, fmt.Errorf("get attachments: %w", err)
@@ -999,8 +1090,12 @@ func (db *database) getMessages(chatID string, loadAttachmentData bool) ([]Messa
 
 		// Parse tool result from JSON if present
 		if toolResult.Valid && toolResult.String != "" {
+			plaintext, err := db.open("tool_result", toolResult.String)
+			if err != nil {
+				return nil, err
+			}
 			var result json.RawMessage
-			if err := json.Unmarshal([]byte(toolResult.String), &result); err == nil {
+			if err := json.Unmarshal([]byte(plaintext), &result); err == nil {
 				msg.ToolResult = &result
 			}
 		}
@@ -1054,12 +1149,24 @@ func (db *database) insertMessage(tx *sql.Tx, chatID string, msg Message) (int64
 		}
 		toolResultJSON = sql.NullString{String: string(resultBytes), Valid: true}
 	}
+	toolResultJSON, err := db.sealNull("tool_result", toolResultJSON)
+	if err != nil {
+		return 0, err
+	}
+	content, err := db.seal("content", msg.Content)
+	if err != nil {
+		return 0, err
+	}
+	thinking, err := db.seal("thinking", msg.Thinking)
+	if err != nil {
+		return 0, err
+	}
 
 	result, err := tx.Exec(query,
 		chatID,
 		msg.Role,
-		msg.Content,
-		msg.Thinking,
+		content,
+		thinking,
 		msg.Stream,
 		modelName,
 		msg.CreatedAt,
@@ -1118,6 +1225,12 @@ func (db *database) getAttachments(messageID int64, loadData bool) ([]File, erro
 		if err != nil {
 			return nil, fmt.Errorf("scan attachment: %w", err)
 		}
+		if file.Filename, err = db.open("filename", file.Filename); err != nil {
+			return nil, err
+		}
+		if file.Data, err = db.openBytes("data", file.Data); err != nil {
+			return nil, err
+		}
 		attachments = append(attachments, file)
 	}
 
@@ -1157,10 +1270,18 @@ func (db *database) getToolCalls(messageID int64) ([]ToolCall, error) {
 			return nil, fmt.Errorf("scan tool call: %w", err)
 		}
 
+		if tc.Function.Arguments, err = db.open("function_arguments", tc.Function.Arguments); err != nil {
+			return nil, err
+		}
+
 		if functionResult.Valid && functionResult.String != "" {
+			plaintext, err := db.open("function_result", functionResult.String)
+			if err != nil {
+				return nil, err
+			}
 			// Parse the JSON result
 			var result json.RawMessage
-			if err := json.Unmarshal([]byte(functionResult.String), &result); err == nil {
+			if err := json.Unmarshal([]byte(plaintext), &result); err == nil {
 				tc.Function.Result = &result
 			}
 		}
@@ -1180,7 +1301,15 @@ func (db *database) insertAttachment(tx *sql.Tx, messageID int64, file File) err
 		INSERT INTO attachments (message_id, filename, data)
 		VALUES (?, ?, ?)
 	`
-	_, err := tx.Exec(query, messageID, file.Filename, file.Data)
+	filename, err := db.seal("filename", file.Filename)
+	if err != nil {
+		return err
+	}
+	data, err := db.sealBytes("data", file.Data)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(query, messageID, filename, data)
 	return err
 }
 
@@ -1199,12 +1328,20 @@ func (db *database) insertToolCall(tx *sql.Tx, messageID int64, tc ToolCall) err
 		}
 		functionResult = sql.NullString{String: string(resultJSON), Valid: true}
 	}
+	functionResult, err := db.sealNull("function_result", functionResult)
+	if err != nil {
+		return err
+	}
+	arguments, err := db.seal("function_arguments", tc.Function.Arguments)
+	if err != nil {
+		return err
+	}
 
-	_, err := tx.Exec(query,
+	_, err = tx.Exec(query,
 		messageID,
 		tc.Type,
 		tc.Function.Name,
-		tc.Function.Arguments,
+		arguments,
 		functionResult,
 	)
 	return err

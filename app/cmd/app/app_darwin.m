@@ -460,6 +460,18 @@ static NSImage *ollamaApplicationIcon(void) {
                name:NSWorkspaceWillPowerOffNotification
              object:nil];
 
+    // Lock encrypted chats when the screen locks or the machine sleeps.
+    [[NSDistributedNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(lockVault:)
+               name:@"com.apple.screenIsLocked"
+             object:nil];
+    [[[NSWorkspace sharedWorkspace] notificationCenter]
+        addObserver:self
+           selector:@selector(lockVault:)
+               name:NSWorkspaceWillSleepNotification
+             object:nil];
+
     // if we're in development mode, set the app icon
     NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
     if (![bundlePath hasSuffix:@".app"]) {
@@ -1447,6 +1459,10 @@ didCompleteWithError:(NSError *)error {
 - (void)startUpdate {
     StartUpdate();
     [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (void)lockVault:(NSNotification *)notification {
+    LockVault();
 }
 
 - (void)systemWillPowerOff:(NSNotification *)notification {

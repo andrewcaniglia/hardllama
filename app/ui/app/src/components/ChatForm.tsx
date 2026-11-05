@@ -30,7 +30,7 @@ import { ThinkButton } from "./ThinkButton";
 import { ErrorMessage } from "./ErrorMessage";
 import { processFiles } from "@/utils/fileValidation";
 import type { ImageData } from "@/types/webview";
-import { PlusIcon } from "@heroicons/react/24/outline";
+import { LockClosedIcon, PlusIcon } from "@heroicons/react/24/outline";
 
 export type ThinkingLevel = "low" | "medium" | "high";
 
@@ -60,10 +60,12 @@ interface ChatFormProps {
       webSearch?: boolean;
       fileTools?: boolean;
       think?: boolean | string;
+      isPrivate?: boolean;
     },
   ) => void;
   autoFocus?: boolean;
   chatId?: string;
+  isPrivateChat?: boolean;
   isDownloadingModel?: boolean;
   isDisabled?: boolean;
   // Editing props - when provided, ChatForm enters edit mode
@@ -86,6 +88,7 @@ function ChatForm({
   onSubmit,
   autoFocus = false,
   chatId = "new",
+  isPrivateChat = false,
   isDownloadingModel = false,
   isDisabled = false,
   editingMessage,
@@ -98,6 +101,7 @@ function ChatForm({
     fileErrors: [],
   });
   const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [privateEnabled, setPrivateEnabled] = useState<boolean>(false);
   const compositionEndTimeoutRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -497,6 +501,8 @@ function ChatForm({
       : supportsThinkToggling
         ? thinkEnabled
         : undefined;
+    // Existing chats are already saved, so only new chats can be private.
+    const sendPrivate = chatId === "new" && privateEnabled;
 
     if (onSubmit) {
       onSubmit(message.content, {
@@ -504,6 +510,7 @@ function ChatForm({
         index: undefined,
         webSearch: useWebSearch,
         think: useThink,
+        isPrivate: sendPrivate,
       });
     } else {
       sendMessageMutation({
@@ -511,6 +518,7 @@ function ChatForm({
         attachments: attachmentsToSend,
         webSearch: useWebSearch,
         think: useThink,
+        isPrivate: sendPrivate,
         onChatEvent: (event) => {
           if (event.eventName === "chat_created" && event.chatId) {
             navigate({
@@ -693,6 +701,13 @@ function ChatForm({
   return (
     <div className={`pb-3 px-3 ${hasMessages ? "mt-auto" : "my-auto"}`}>
       {chatId === "new" && <Logo />}
+
+      {(isPrivateChat || (chatId === "new" && privateEnabled)) && (
+        <p className="mb-2 px-1 text-xs text-neutral-500 dark:text-neutral-400">
+          Private chat: not saved, and gone when Ollama quits. Cloud models and
+          web search still send content off this device.
+        </p>
+      )}
 
       {shouldShowLoginBanner && (
         <DisplayLogin
@@ -924,6 +939,25 @@ function ChatForm({
                       }}
                     />
                   </>
+                )}
+                {chatId === "new" && (
+                  <button
+                    type="button"
+                    onClick={() => setPrivateEnabled(!privateEnabled)}
+                    aria-pressed={privateEnabled}
+                    title={
+                      privateEnabled
+                        ? "Disable private chat"
+                        : "Enable private chat"
+                    }
+                    className={`flex h-9 w-9 items-center justify-center rounded-full bg-white dark:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer border border-transparent ${
+                      privateEnabled
+                        ? "text-[rgba(0,115,255,1)] dark:text-[rgba(70,155,255,1)]"
+                        : "text-neutral-500 dark:text-neutral-400"
+                    }`}
+                  >
+                    <LockClosedIcon className="w-4.5 h-4.5 stroke-2" />
+                  </button>
                 )}
                 <WebSearchButton
                   ref={webSearchButtonRef}

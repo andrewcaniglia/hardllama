@@ -7,6 +7,7 @@ export class ChatInfo {
     userExcerpt: string;
     createdAt: Date;
     updatedAt: Date;
+    private?: boolean;
 
     constructor(source: any = {}) {
         if ('string' === typeof source) source = JSON.parse(source);
@@ -15,6 +16,7 @@ export class ChatInfo {
         this.userExcerpt = source["userExcerpt"];
         this.createdAt = new Date(source["createdAt"]);
         this.updatedAt = new Date(source["updatedAt"]);
+        this.private = source["private"];
     }
 }
 export class ChatsResponse {
@@ -159,6 +161,7 @@ export class Chat {
     title: string;
     created_at: Time;
     browser_state?: BrowserStateData;
+    private?: boolean;
 
     constructor(source: any = {}) {
         if ('string' === typeof source) source = JSON.parse(source);
@@ -167,6 +170,7 @@ export class Chat {
         this.title = source["title"];
         this.created_at = this.convertValues(source["created_at"], Time);
         this.browser_state = source["browser_state"];
+        this.private = source["private"];
     }
 
 	convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -516,6 +520,7 @@ export class ChatRequest {
     file_tools?: boolean;
     forceUpdate?: boolean;
     think?: any;
+    private?: boolean;
 
     constructor(source: any = {}) {
         if ('string' === typeof source) source = JSON.parse(source);
@@ -527,6 +532,7 @@ export class ChatRequest {
         this.file_tools = source["file_tools"];
         this.forceUpdate = source["forceUpdate"];
         this.think = source["think"];
+        this.private = source["private"];
     }
 
 	convertValues(a: any, classs: any, asMap: boolean = false): any {

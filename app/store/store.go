@@ -7,6 +7,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -110,6 +111,9 @@ type Chat struct {
 	Title        string          `json:"title"`
 	CreatedAt    time.Time       `json:"created_at"`
 	BrowserState json.RawMessage `json:"browser_state,omitempty" ts_type:"BrowserStateData"`
+
+	// Private chats are kept in memory only and are never written to disk.
+	Private bool `json:"private,omitempty"`
 }
 
 // NewChat creates a new Chat with the ID, with CreatedAt timestamp initialized
@@ -196,6 +200,11 @@ type Store struct {
 	// dbMu protects database initialization only
 	dbMu sync.Mutex
 	db   *database
+
+	private privateChats
+
+	vaultTimerMu sync.Mutex
+	vaultTimer   *time.Timer
 }
 
 var defaultDBPath = onboarding.AppDatabasePath()
@@ -472,11 +481,16 @@ func (s *Store) MarkCodexDesktopUsed() error {
 }
 
 func (s *Store) Chats() ([]Chat, error) {
-	if err := s.ensureDB(); err != nil {
+	if err := s.chatDB(); err != nil {
 		return nil, err
 	}
 
-	return s.db.getAllChats()
+	chats, err := s.db.getAllChats()
+	if err != nil {
+		return nil, err
+	}
+
+	return append(s.private.list(), chats...), nil
 }
 
 func (s *Store) Chat(id string) (*Chat, error) {
@@ -484,12 +498,23 @@ func (s *Store) Chat(id string) (*Chat, error) {
 }
 
 func (s *Store) ChatWithOptions(id string, loadAttachmentData bool) (*Chat, error) {
-	if err := s.ensureDB(); err != nil {
+	if chat, ok := s.private.get(id); ok {
+		if chat == nil {
+			return nil, fmt.Errorf("%w: chat %s", not.Found, id)
+		}
+		return chat, nil
+	}
+
+	if err := s.chatDB(); err != nil {
 		return nil, err
 	}
 
 	chat, err := s.db.getChatWithOptions(id, loadAttachmentData)
 	if err != nil {
+		// Callers replace a chat that isn't found, so these must not look like it.
+		if errors.Is(err, ErrVaultLocked) || errors.Is(err, ErrVaultDecryptFail) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w: chat %s", not.Found, id)
 	}
 
@@ -497,7 +522,11 @@ func (s *Store) ChatWithOptions(id string, loadAttachmentData bool) (*Chat, erro
 }
 
 func (s *Store) SetChat(chat Chat) error {
-	if err := s.ensureDB(); err != nil {
+	if s.private.set(chat) {
+		return nil
+	}
+
+	if err := s.chatDB(); err != nil {
 		return err
 	}
 
@@ -505,7 +534,11 @@ func (s *Store) SetChat(chat Chat) error {
 }
 
 func (s *Store) DeleteChat(id string) error {
-	if err := s.ensureDB(); err != nil {
+	if s.private.remove(id) {
+		return nil
+	}
+
+	if err := s.chatDB(); err != nil {
 		return err
 	}
 
@@ -541,7 +574,13 @@ func (s *Store) SetWindowSize(width, height int) error {
 }
 
 func (s *Store) UpdateLastMessage(chatID string, message Message) error {
-	if err := s.ensureDB(); err != nil {
+	if ok, err := s.private.update(chatID, func(chat *Chat) error {
+		return updateLastMessage(chat, message)
+	}); ok {
+		return err
+	}
+
+	if err := s.chatDB(); err != nil {
 		return err
 	}
 
@@ -549,7 +588,14 @@ func (s *Store) UpdateLastMessage(chatID string, message Message) error {
 }
 
 func (s *Store) AppendMessage(chatID string, message Message) error {
-	if err := s.ensureDB(); err != nil {
+	if ok, err := s.private.update(chatID, func(chat *Chat) error {
+		chat.Messages = append(chat.Messages, message)
+		return nil
+	}); ok {
+		return err
+	}
+
+	if err := s.chatDB(); err != nil {
 		return err
 	}
 
@@ -557,7 +603,14 @@ func (s *Store) AppendMessage(chatID string, message Message) error {
 }
 
 func (s *Store) UpdateChatBrowserState(chatID string, state json.RawMessage) error {
-	if err := s.ensureDB(); err != nil {
+	if ok, err := s.private.update(chatID, func(chat *Chat) error {
+		setBrowserState(chat, state)
+		return nil
+	}); ok {
+		return err
+	}
+
+	if err := s.chatDB(); err != nil {
 		return err
 	}
 

@@ -7,6 +7,7 @@ import { Link } from "@/components/ui/link";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { ChatsResponse } from "@/gotypes";
 import { AppNavigation } from "@/components/AppSidebar";
+import { LockClosedIcon } from "@heroicons/react/24/outline";
 
 // there's a hidden debug feature to copy a chat's data to the clipboard by
 // holding shift and clicking this many times within this many seconds
@@ -314,6 +315,12 @@ export function ChatSidebar({ currentChatId }: ChatSidebarProps) {
                         }}
                         draggable={false}
                       >
+                        {chat.private && (
+                          <LockClosedIcon
+                            className="mr-1.5 h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400"
+                            title="Private chat, not saved"
+                          />
+                        )}
                         <span className="truncate font-sans text-sm">
                           {chat.title ||
                             chat.userExcerpt ||

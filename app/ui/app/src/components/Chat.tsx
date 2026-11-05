@@ -130,6 +130,7 @@ export default function Chat({ chatId }: { chatId: string }) {
       webSearch?: boolean;
       fileTools?: boolean;
       think?: boolean | string;
+      isPrivate?: boolean;
     },
   ) => {
     // Clear any existing errors when sending a new message
@@ -151,6 +152,7 @@ export default function Chat({ chatId }: { chatId: string }) {
       webSearch: options.webSearch,
       fileTools: options.fileTools,
       think: options.think,
+      isPrivate: options.isPrivate,
       onChatEvent: (event) => {
         if (event.eventName === "chat_created" && event.chatId) {
           navigate({
@@ -265,6 +267,7 @@ export default function Chat({ chatId }: { chatId: string }) {
               hasMessages={messages.length > 0}
               onSubmit={handleChatFormSubmit}
               chatId={chatId}
+              isPrivateChat={chatQuery?.data?.chat?.private}
               autoFocus={true}
               editingMessage={editingMessage}
               onCancelEdit={handleCancelEdit}

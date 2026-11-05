@@ -241,6 +241,7 @@ export const useSendMessage = (chatId: string) => {
       fileTools,
       forceUpdate,
       think,
+      isPrivate,
       onChatEvent,
     }: {
       message: string;
@@ -250,6 +251,7 @@ export const useSendMessage = (chatId: string) => {
       fileTools?: boolean;
       forceUpdate?: boolean;
       think?: boolean | string;
+      isPrivate?: boolean;
       onChatEvent?: (event: ChatEventUnion) => void;
     }) => {
       // For existing chats, set streaming state and add optimistic user message
@@ -326,6 +328,7 @@ export const useSendMessage = (chatId: string) => {
         fileTools,
         forceUpdate,
         think,
+        isPrivate,
       );
       let currentChatId = chatId;
       let isCancelled = false;
@@ -700,6 +703,7 @@ export const useSendMessage = (chatId: string) => {
               chat: new Chat({
                 id: newId,
                 model: effectiveModel.model,
+                private: isPrivate,
                 messages: [
                   new Message({
                     role: "user",

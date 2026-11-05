@@ -28,6 +28,7 @@ enum AppMove askToMoveToApplications();
 int createSymlinkWithAuthorization();
 int installSymlink(const char *cliPath);
 extern void Restart();
+extern void LockVault();
 // extern void Quit();
 void StartUI(const char *path);
 void ShowUI();

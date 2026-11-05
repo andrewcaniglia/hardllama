@@ -290,6 +290,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/create-chat", handle(s.createChat))
 	mux.Handle("PUT /api/v1/chat/{id}/rename", handle(s.renameChat))
 
+	mux.Handle("GET /api/v1/vault", handle(s.vaultStatus))
+	mux.Handle("POST /api/v1/vault/setup", handle(s.vaultSetup))
+	mux.Handle("POST /api/v1/vault/unlock", handle(s.vaultUnlock))
+	mux.Handle("POST /api/v1/vault/lock", handle(s.vaultLock))
+
 	mux.Handle("GET /api/v1/inference-compute", handle(s.getInferenceCompute))
 	mux.Handle("POST /api/v1/model/upstream", handle(s.modelUpstream))
 	mux.Handle("GET /api/v1/settings", handle(s.getSettings))
@@ -523,6 +528,50 @@ func (s *Server) createChat(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+func (s *Server) vaultStatus(w http.ResponseWriter, r *http.Request) error {
+	enabled, locked, err := s.Store.VaultStatus()
+	if err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	return json.NewEncoder(w).Encode(map[string]bool{"enabled": enabled, "locked": locked})
+}
+
+func (s *Server) vaultSetup(w http.ResponseWriter, r *http.Request) error {
+	return s.vaultPassword(w, r, s.Store.SetupVault)
+}
+
+func (s *Server) vaultUnlock(w http.ResponseWriter, r *http.Request) error {
+	return s.vaultPassword(w, r, s.Store.UnlockVault)
+}
+
+func (s *Server) vaultPassword(w http.ResponseWriter, r *http.Request, apply func(string) error) error {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return fmt.Errorf("invalid request body: %w", err)
+	}
+
+	err := apply(req.Password)
+	switch {
+	case errors.Is(err, store.ErrVaultPassword), errors.Is(err, store.ErrVaultWeakPass):
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		return json.NewEncoder(w).Encode(responses.Error{Error: err.Error()})
+	case err != nil:
+		return err
+	}
+	return s.vaultStatus(w, r)
+}
+
+func (s *Server) vaultLock(w http.ResponseWriter, r *http.Request) error {
+	s.Store.LockVault()
+	return s.vaultStatus(w, r)
+}
+
 func (s *Server) listChats(w http.ResponseWriter, r *http.Request) error {
 	chats, _ := s.Store.Chats()
 
@@ -532,6 +581,7 @@ func (s *Server) listChats(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(responses.ChatsResponse{ChatInfos: chatInfos})
 	return nil
 }
@@ -716,6 +766,12 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 		return not.Found
 	}
 
+	if _, locked, err := s.Store.VaultStatus(); err != nil {
+		return err
+	} else if locked {
+		return store.ErrVaultLocked
+	}
+
 	cid := r.PathValue("id")
 	createdChat := false
 
@@ -767,6 +823,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		chat = store.NewChat(cid)
+		// Existing chats are already on disk, so only new chats can be private.
+		chat.Private = createdChat && req.Private
 	}
 
 	// Only add user message if not forceUpdate
@@ -1334,6 +1392,8 @@ func (s *Server) getChat(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("chat ID is required")
 	}
 
+	w.Header().Set("Cache-Control", "no-store")
+
 	chat, err := s.Store.Chat(cid)
 	if err != nil {
 		// Return empty chat if not found
@@ -1518,6 +1578,7 @@ func chatInfoFromChat(chat store.Chat) responses.ChatInfo {
 		UserExcerpt: userExcerpt,
 		CreatedAt:   chat.CreatedAt,
 		UpdatedAt:   updatedAt,
+		Private:     chat.Private,
 	}
 }
 

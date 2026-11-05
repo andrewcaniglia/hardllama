@@ -15,6 +15,7 @@ type ChatInfo struct {
 	UserExcerpt string    `json:"userExcerpt"`
 	CreatedAt   time.Time `json:"createdAt" ts_type:"Date" ts_transform:"new Date(__VALUE__)"`
 	UpdatedAt   time.Time `json:"updatedAt" ts_type:"Date" ts_transform:"new Date(__VALUE__)"`
+	Private     bool      `json:"private,omitempty"`
 }
 
 type ChatsResponse struct {
@@ -126,6 +127,7 @@ type ChatRequest struct {
 	FileTools   *bool        `json:"file_tools,omitempty"`
 	ForceUpdate bool         `json:"forceUpdate,omitempty"`
 	Think       any          `json:"think,omitempty"`
+	Private     bool         `json:"private,omitempty"`
 }
 
 type Error struct {

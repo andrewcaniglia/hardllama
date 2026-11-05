@@ -45,6 +45,10 @@ vi.mock("@/components/CodexDesktopModelsSettings", () => ({
   ),
 }));
 
+vi.mock("@/components/VaultSettings", () => ({
+  VaultSettings: () => null,
+}));
+
 vi.mock("@/hooks/useUser", () => ({
   useUser: () => ({
     user: {

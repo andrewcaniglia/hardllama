@@ -6,9 +6,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -1301,5 +1303,217 @@ func TestSettingsPreservesConcurrentCodexDesktopAcknowledgment(t *testing.T) {
 	}
 	if !response.Settings.CodexDesktopUsed {
 		t.Error("settings response returned a stale acknowledgment")
+	}
+}
+
+func TestChatPrivate(t *testing.T) {
+	const secret = "sentinel-7a2e-do-not-persist"
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/show":
+			json.NewEncoder(w).Encode(api.ShowResponse{})
+		case "/api/chat":
+			json.NewEncoder(w).Encode(api.ChatResponse{
+				Message: api.Message{Role: "assistant", Content: secret, Thinking: secret},
+				Done:    true,
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+	t.Setenv("OLLAMA_HOST", ollama.URL)
+
+	post := func(t *testing.T, s *Server, id string, private bool) string {
+		t.Helper()
+
+		body, err := json.Marshal(responses.ChatRequest{Model: "test", Prompt: secret, Private: private})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/chat/"+id, bytes.NewReader(body))
+		req.SetPathValue("id", id)
+		rec := httptest.NewRecorder()
+		if err := s.chat(rec, req); err != nil {
+			t.Fatal(err)
+		}
+
+		dec := json.NewDecoder(rec.Body)
+		for {
+			var event responses.ChatEvent
+			if err := dec.Decode(&event); err != nil {
+				return id
+			}
+			if event.EventName == "chat_created" {
+				id = *event.ChatID
+			}
+		}
+	}
+
+	onDisk := func(t *testing.T, dir string) bool {
+		t.Helper()
+
+		files, err := filepath.Glob(filepath.Join(dir, "*"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, file := range files {
+			data, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(data, []byte(secret)) {
+				return true
+			}
+		}
+		return false
+	}
+
+	newServer := func(t *testing.T) (*Server, string) {
+		t.Helper()
+
+		dir := t.TempDir()
+		s := &Server{Store: &store.Store{DBPath: filepath.Join(dir, "db.sqlite")}}
+		t.Cleanup(func() { s.Store.Close() })
+		return s, dir
+	}
+
+	t.Run("private chat stays off disk", func(t *testing.T) {
+		s, dir := newServer(t)
+
+		id := post(t, s, "new", true)
+		post(t, s, id, false) // follow-up messages stay private
+
+		chat, err := s.Store.Chat(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !chat.Private || len(chat.Messages) != 4 {
+			t.Fatalf("unexpected chat: %+v", chat)
+		}
+		if chat.Messages[1].Content != secret {
+			t.Fatalf("expected assistant reply, got %+v", chat.Messages[1])
+		}
+
+		if err := s.Store.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if onDisk(t, dir) {
+			t.Error("private chat content found on disk")
+		}
+	})
+
+	t.Run("regular chat is saved", func(t *testing.T) {
+		s, dir := newServer(t)
+
+		id := post(t, s, "new", false)
+
+		chat, err := s.Store.Chat(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if chat.Private {
+			t.Fatal("expected regular chat")
+		}
+
+		if err := s.Store.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if !onDisk(t, dir) {
+			t.Error("expected regular chat content on disk")
+		}
+	})
+
+	t.Run("existing chat cannot become private", func(t *testing.T) {
+		s, _ := newServer(t)
+
+		id := post(t, s, "new", false)
+		post(t, s, id, true)
+
+		chat, err := s.Store.Chat(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if chat.Private {
+			t.Fatal("expected chat to stay regular")
+		}
+	})
+}
+
+func TestVaultRoutes(t *testing.T) {
+	const password = "correct horse battery"
+
+	s := &Server{
+		Store: &store.Store{DBPath: filepath.Join(t.TempDir(), "db.sqlite")},
+		Dev:   true,
+	}
+	t.Cleanup(func() { s.Store.Close() })
+	handler := s.Handler()
+
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	status := func(t *testing.T, want string) {
+		t.Helper()
+		rec := request(http.MethodGet, "/api/v1/vault", "")
+		if got := strings.TrimSpace(rec.Body.String()); got != want {
+			t.Fatalf("expected %s, got %s", want, got)
+		}
+	}
+
+	chat := store.NewChat("existing")
+	chat.Messages = append(chat.Messages, store.NewMessage("user", "keep me", nil))
+	if err := s.Store.SetChat(*chat); err != nil {
+		t.Fatal(err)
+	}
+
+	status(t, `{"enabled":false,"locked":false}`)
+
+	if rec := request(http.MethodPost, "/api/v1/vault/setup", `{"password":"short"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected bad request for short password, got %d", rec.Code)
+	}
+	if rec := request(http.MethodPost, "/api/v1/vault/setup", `{"password":"`+password+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("setup failed: %d %s", rec.Code, rec.Body)
+	}
+	status(t, `{"enabled":true,"locked":false}`)
+
+	request(http.MethodPost, "/api/v1/vault/lock", "")
+	status(t, `{"enabled":true,"locked":true}`)
+
+	// A message sent while locked must not replace the chat.
+	body := `{"model":"test","prompt":"overwrite"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/chat/existing", strings.NewReader(body))
+	req.SetPathValue("id", "existing")
+	if err := s.chat(httptest.NewRecorder(), req); !errors.Is(err, store.ErrVaultLocked) {
+		t.Fatalf("expected locked error, got %v", err)
+	}
+
+	rec := request(http.MethodGet, "/api/v1/chats", "")
+	if strings.Contains(rec.Body.String(), "keep me") {
+		t.Fatalf("locked chat list leaked content: %s", rec.Body)
+	}
+	rec = request(http.MethodGet, "/api/v1/chat/existing", "")
+	if strings.Contains(rec.Body.String(), "keep me") {
+		t.Fatalf("locked chat leaked content: %s", rec.Body)
+	}
+
+	if rec := request(http.MethodPost, "/api/v1/vault/unlock", `{"password":"wrong password"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected bad request for wrong password, got %d", rec.Code)
+	}
+	status(t, `{"enabled":true,"locked":true}`)
+
+	if rec := request(http.MethodPost, "/api/v1/vault/unlock", `{"password":"`+password+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("unlock failed: %d %s", rec.Code, rec.Body)
+	}
+	got, err := s.Store.Chat("existing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].Content != "keep me" {
+		t.Fatalf("chat changed while locked: %+v", got.Messages)
 	}
 }

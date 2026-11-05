@@ -2031,5 +2031,12 @@ func handleConnectURL() {
 	handleConnectURLScheme()
 }
 
+//export LockVault
+func LockVault() {
+	if appStore != nil {
+		go appStore.LockVault()
+	}
+}
+
 // checkAndHandleExistingInstance is not needed on non-Windows platforms
 func checkAndHandleExistingInstance(_ string) {}

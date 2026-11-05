@@ -336,6 +336,39 @@ export async function getModelCapabilities(
   }
 }
 
+export interface VaultStatus {
+  enabled: boolean;
+  locked: boolean;
+}
+
+async function postVault(
+  action: "setup" | "unlock" | "lock",
+  password?: string,
+): Promise<VaultStatus> {
+  const response = await fetch(`${API_BASE}/api/v1/vault/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || `Failed to ${action}: ${response.status}`);
+  }
+  return data;
+}
+
+export async function getVaultStatus(): Promise<VaultStatus> {
+  const response = await fetch(`${API_BASE}/api/v1/vault`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch vault status: ${response.status}`);
+  }
+  return response.json();
+}
+
+export const setupVault = (password: string) => postVault("setup", password);
+export const unlockVault = (password: string) => postVault("unlock", password);
+export const lockVault = () => postVault("lock");
+
 export type ChatEventUnion = ChatEvent | DownloadEvent | ErrorEvent;
 
 export async function* sendMessage(
@@ -349,6 +382,7 @@ export async function* sendMessage(
   fileTools?: boolean,
   forceUpdate?: boolean,
   think?: boolean | string,
+  isPrivate?: boolean,
 ): AsyncGenerator<ChatEventUnion> {
   // Convert Uint8Array to base64 for JSON serialization
   const serializedAttachments = attachments?.map((att) => ({
@@ -379,6 +413,7 @@ export async function* sendMessage(
         file_tools: fileTools ?? false,
         ...(forceUpdate !== undefined ? { forceUpdate } : {}),
         ...(shouldSendThink ? { think } : {}),
+        ...(isPrivate ? { private: true } : {}),
       }),
     ),
     signal,

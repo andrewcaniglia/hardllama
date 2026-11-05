@@ -6,6 +6,9 @@ import { useCloudStatus } from "@/hooks/useCloudStatus";
 import { preloadChatData } from "@/lib/chatPreload";
 import { preventPageSelectAll } from "@/lib/keyboard";
 import { useEffect } from "react";
+import { VaultLockScreen } from "@/components/VaultLockScreen";
+import { VaultSetupScreen } from "@/components/VaultSetupScreen";
+import { useVaultStatus } from "@/hooks/useVault";
 
 function RootComponent() {
   const queryClient = useQueryClient();
@@ -26,6 +29,19 @@ function RootComponent() {
   });
   // Fetch cloud status on startup (best-effort)
   useCloudStatus();
+
+  const { data: vault, isPending } = useVaultStatus();
+
+  // Nothing is usable until a password exists and has been entered.
+  if (isPending) {
+    return null;
+  }
+  if (vault?.locked) {
+    return <VaultLockScreen />;
+  }
+  if (vault && !vault.enabled) {
+    return <VaultSetupScreen />;
+  }
 
   return (
     <div>

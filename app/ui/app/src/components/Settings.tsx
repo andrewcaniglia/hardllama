@@ -3,6 +3,7 @@ import { Switch } from "@/components/ui/switch";
 import { Text } from "@/components/ui/text";
 import { Input } from "@/components/ui/input";
 import { Field, Label, Description } from "@/components/ui/fieldset";
+import { VaultSettings } from "@/components/VaultSettings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -628,6 +629,8 @@ export default function Settings() {
                   </div>
                 </div>
               </Field>
+
+              <VaultSettings />
 
               {!isWindows && (
                 <Field>
