@@ -207,7 +207,13 @@ type Store struct {
 	vaultTimer   *time.Timer
 }
 
-var defaultDBPath = onboarding.AppDatabasePath()
+var defaultDBPath = func() string {
+	// HardLlama keeps its own data so it can't touch an official install's chats.
+	if home, err := os.UserHomeDir(); runtime.GOOS == "darwin" && err == nil {
+		return filepath.Join(home, "Library", "Application Support", "HardLlama", "db.sqlite")
+	}
+	return onboarding.AppDatabasePath()
+}()
 
 // legacyConfigPath is the path to the old config.json file
 var legacyConfigPath = func() string {

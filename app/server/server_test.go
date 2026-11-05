@@ -56,7 +56,7 @@ func TestServerCmd(t *testing.T) {
 		{
 			name:     "expose",
 			settings: store.Settings{Expose: true},
-			want:     []string{"OLLAMA_HOST=0.0.0.0", "OLLAMA_MODELS=" + defaultModels},
+			want:     []string{"OLLAMA_HOST=0.0.0.0:11434", "OLLAMA_MODELS=" + defaultModels},
 			dont:     []string{"OLLAMA_ORIGINS="},
 		},
 		{
@@ -85,7 +85,7 @@ func TestServerCmd(t *testing.T) {
 				Models:  tmpModels,
 			},
 			want: []string{
-				"OLLAMA_HOST=0.0.0.0",
+				"OLLAMA_HOST=0.0.0.0:11434",
 				"OLLAMA_ORIGINS=*",
 				"OLLAMA_MODELS=" + tmpModels,
 			},

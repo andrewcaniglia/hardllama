@@ -11,6 +11,7 @@
 set -eu
 
 OLLAMA_TEAM_ID=3MU9H2V9Y9
+BUNDLE_ID=com.hardllama.app
 INSTALLED=/Applications/HardLlama.app
 OUT=dist/HardLlama.app
 SERVER_VERSION=${1:-}
@@ -62,6 +63,15 @@ mkdir -p dist
 ditto "$BASE" "$OUT"
 cp "$WORK/app" "$OUT/Contents/MacOS/Ollama"
 cp "$WORK/app" "$OUT/Contents/Frameworks/Squirrel.framework/Versions/A/Squirrel"
+
+# A separate identity keeps this app from being treated as the official one.
+plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$OUT/Contents/Info.plist"
+AGENTS="$OUT/Contents/Library/LaunchAgents"
+if [ -f "$AGENTS/com.ollama.ollama.plist" ]; then
+    mv "$AGENTS/com.ollama.ollama.plist" "$AGENTS/$BUNDLE_ID.plist"
+fi
+plutil -replace Label -string "$BUNDLE_ID" "$AGENTS/$BUNDLE_ID.plist"
+
 for KEY in CFBundleName CFBundleDisplayName; do
     plutil -replace "$KEY" -string HardLlama "$OUT/Contents/Info.plist"
 done
@@ -70,8 +80,8 @@ for KEY in CFBundleShortVersionString CFBundleVersion; do
 done
 
 # Nested code keeps its official signature. The ad-hoc signature only covers
-# the app, so the bundle identifier must match what instance detection expects.
-codesign -f --deep -s - --identifier com.electron.ollama "$OUT"
+# the app.
+codesign -f --deep -s - --identifier "$BUNDLE_ID" "$OUT"
 codesign --verify --deep --strict "$OUT"
 
 status "Built $OUT ($VERSION)"

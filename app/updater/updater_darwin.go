@@ -90,7 +90,7 @@ func init() {
 		slog.Warn("unable to determine user cache dir, falling back to tmpdir", "error", err)
 		cacheDir = os.TempDir()
 	}
-	appDataDir := filepath.Join(cacheDir, "ollama")
+	appDataDir := filepath.Join(cacheDir, "hardllama")
 	UpgradeMarkerFile = filepath.Join(appDataDir, "upgraded")
 	appBackupDir = filepath.Join(appDataDir, "backup")
 	UpdateStageDir = filepath.Join(appDataDir, "updates")

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/ollama/ollama/app/store"
 	"github.com/ollama/ollama/app/updater"
 	"github.com/ollama/ollama/cmd/launch"
+	"github.com/ollama/ollama/envconfig"
 	"github.com/ollama/ollama/internal/proxy"
 )
 
@@ -3293,4 +3295,107 @@ func TestMaybeMoveSkippedWhenUpdatesDisabled(t *testing.T) {
 	if got := maybeMoveAndRestart(); got != AlreadyMoved {
 		t.Fatalf("expected no move, got %v", got)
 	}
+}
+
+func TestServerUsesOwnPort(t *testing.T) {
+	if got := envconfig.Host().Port(); got == "11434" {
+		t.Fatal("server must not share the official app's port")
+	}
+	gatewayPort, err := claudeGatewayPort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envconfig.Host().Port() == gatewayPort {
+		t.Fatalf("server port %s is reserved for the Claude gateway", gatewayPort)
+	}
+}
+
+// Tests must never touch the real lock or signal the running app.
+func init() {
+	dir, err := os.MkdirTemp("", "hardllama-lock")
+	if err != nil {
+		panic(err)
+	}
+	instanceLockPath = filepath.Join(dir, "hardllama.lock")
+	signalInstance = func(int) error { return nil }
+}
+
+func stubInstanceSignal(t *testing.T, fn func(int) error) {
+	t.Helper()
+
+	previous := signalInstance
+	signalInstance = fn
+	t.Cleanup(func() { signalInstance = previous })
+}
+
+func TestInstanceLockHiddenLaunchGivesWay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lock")
+	first, ok := acquireInstanceLock(path, false, time.Second)
+	if !ok || first == nil {
+		t.Fatal("expected first launch to take the lock")
+	}
+	defer first.Close()
+
+	stubInstanceSignal(t, func(int) error {
+		t.Error("hidden launch must not signal the running instance")
+		return nil
+	})
+	if _, ok := acquireInstanceLock(path, true, time.Second); ok {
+		t.Fatal("expected hidden launch to exit")
+	}
+}
+
+// This is the race that left two copies running: a hidden launch got there
+// first, and the app the user opened must still win.
+func TestInstanceLockUserLaunchReplacesHiddenInstance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lock")
+	hidden, ok := acquireInstanceLock(path, true, time.Second)
+	if !ok {
+		t.Fatal("expected hidden launch to take the lock")
+	}
+
+	var signaled atomic.Int32
+	stubInstanceSignal(t, func(pid int) error {
+		signaled.Store(int32(pid))
+		return hidden.Close()
+	})
+
+	visible, ok := acquireInstanceLock(path, false, 2*time.Second)
+	if !ok || visible == nil {
+		t.Fatal("expected user launch to take over")
+	}
+	defer visible.Close()
+
+	if got := int(signaled.Load()); got != os.Getpid() {
+		t.Fatalf("signaled pid %d, want %d", got, os.Getpid())
+	}
+}
+
+func TestInstanceLockTimesOutRatherThanRunningTwice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lock")
+	first, ok := acquireInstanceLock(path, false, time.Second)
+	if !ok {
+		t.Fatal("expected first launch to take the lock")
+	}
+	defer first.Close()
+
+	stubInstanceSignal(t, func(int) error { return nil })
+	if _, ok := acquireInstanceLock(path, false, 100*time.Millisecond); ok {
+		t.Fatal("expected second launch to give up")
+	}
+}
+
+func TestInstanceLockReleasedOnExit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lock")
+	first, ok := acquireInstanceLock(path, false, time.Second)
+	if !ok {
+		t.Fatal("expected first launch to take the lock")
+	}
+	first.Close()
+
+	second, ok := acquireInstanceLock(path, true, time.Second)
+	if !ok {
+		t.Fatal("expected lock to be free after the holder exits")
+	}
+	second.Close()
 }

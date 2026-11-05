@@ -1630,10 +1630,10 @@ didCompleteWithError:(NSError *)error {
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 - (void)registerSelfAsLoginItem:(BOOL)firstTimeRun {
     appLogInfo(@"using v13+ SMAppService for login registration");
-    // Maps to the file Ollama.app/Contents/Library/LaunchAgents/com.ollama.ollama.plist
-    SMAppService* service = [SMAppService agentServiceWithPlistName:@"com.ollama.ollama.plist"];
+    // Maps to the file HardLlama.app/Contents/Library/LaunchAgents/com.hardllama.app.plist
+    SMAppService* service = [SMAppService agentServiceWithPlistName:@"com.hardllama.app.plist"];
     if (!service) {
-        appLogInfo(@"SMAppService failed to find service for com.ollama.ollama.plist");
+        appLogInfo(@"SMAppService failed to find service for com.hardllama.app.plist");
         return;
     }
     SMAppServiceStatus status = [service status];
@@ -1917,9 +1917,8 @@ static BOOL isOllamaApplication(NSRunningApplication *app) {
     if (bundleId == nil || bundleId.length == 0) {
         return NO;
     }
-    return [bundleId isEqualToString:[[NSBundle mainBundle] bundleIdentifier]] ||
-        [bundleId isEqualToString:@"ai.ollama.ollama"] ||
-        [bundleId isEqualToString:@"com.electron.ollama"];
+    // Only our own bundle: an official install must be left running.
+    return [bundleId isEqualToString:[[NSBundle mainBundle] bundleIdentifier]];
 }
 
 bool otherOllamaProcesses(AppProcessIdentity **processes, size_t *count) {

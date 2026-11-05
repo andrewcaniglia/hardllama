@@ -393,3 +393,9 @@ func TestVaultSetupRemovesPreviouslyDeletedText(t *testing.T) {
 	}
 	assertVaultSecretNotOnDisk(t, s.DBPath)
 }
+
+func TestDefaultDataIsSeparateFromOfficialApp(t *testing.T) {
+	if strings.Contains(defaultDBPath, filepath.Join("Application Support", "Ollama")) {
+		t.Fatalf("database shares the official app's folder: %s", defaultDBPath)
+	}
+}

@@ -78,8 +78,8 @@ type claudeDesktopController interface {
 
 var (
 	isApp              = updater.BundlePath != ""
-	appLogPath         = filepath.Join(os.Getenv("HOME"), ".ollama", "logs", "app.log")
-	launchAgentPath    = filepath.Join(os.Getenv("HOME"), "Library", "LaunchAgents", "com.ollama.ollama.plist")
+	appLogPath         = filepath.Join(os.Getenv("HOME"), ".ollama", "logs", "hardllama-app.log")
+	launchAgentPath    = filepath.Join(os.Getenv("HOME"), "Library", "LaunchAgents", "com.hardllama.app.plist")
 	claudeAppProxy     *proxy.ClaudeDesktop
 	claudeProxyStartMu sync.Mutex
 	// Serialize default resets with connect, disconnect, and shutdown decisions.
@@ -473,11 +473,84 @@ func continueAfterBarrierError(err error) bool {
 }
 
 // handleExistingInstance handles existing instances on macOS.
-func handleExistingInstance(_ bool) bool {
+func handleExistingInstance(startHidden bool) bool {
 	if !isApp {
 		return true
 	}
-	return killOtherInstances()
+	if !killOtherInstances() {
+		return false
+	}
+
+	lock, ok := acquireInstanceLock(instanceLockPath, startHidden, instanceLockTimeout)
+	instanceLock = lock
+	return ok
+}
+
+const instanceLockTimeout = 10 * time.Second
+
+var (
+	// The data folder can be missing at startup, so the lock lives elsewhere.
+	instanceLockPath = filepath.Join(os.Getenv("HOME"), ".ollama", "hardllama.lock")
+
+	// instanceLock stays open for the life of the process. The kernel releases
+	// it on exit, including after a crash.
+	instanceLock *os.File
+
+	signalInstance = func(pid int) error {
+		return syscall.Kill(pid, syscall.SIGUSR1)
+	}
+)
+
+// acquireInstanceLock closes the gap in the instance barrier, which can't see
+// a launch that happens at the same moment. A hidden launch gives way to a
+// running instance. Any other launch was started by the user, so it asks the
+// running instance to hand off and waits for it to exit.
+func acquireInstanceLock(path string, startHidden bool, timeout time.Duration) (*os.File, bool) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		slog.Warn("failed to open instance lock", "path", path, "error", err)
+		return nil, true
+	}
+
+	deadline := time.Now().Add(timeout)
+	signaled := false
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			if err := f.Truncate(0); err == nil {
+				_, _ = f.WriteAt([]byte(strconv.Itoa(os.Getpid())), 0)
+			}
+			return f, true
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			slog.Warn("failed to take instance lock", "path", path, "error", err)
+			f.Close()
+			return nil, true
+		}
+
+		if startHidden {
+			slog.Info("another instance is running, exiting")
+			f.Close()
+			return nil, false
+		}
+
+		if !signaled {
+			signaled = true
+			data, err := os.ReadFile(path)
+			if pid, convErr := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && convErr == nil && pid > 0 {
+				if err := signalInstance(pid); err != nil {
+					slog.Warn("failed to signal running instance", "pid", pid, "error", err)
+				}
+			}
+		}
+
+		if !time.Now().Before(deadline) {
+			slog.Error("timed out waiting for running instance to exit")
+			f.Close()
+			return nil, false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func installSymlink() {
@@ -503,6 +576,9 @@ func installSymlink() {
 			slog.Info("ollama already in users PATH", "cli", cmd)
 			return
 		}
+		// Leave an existing install's CLI alone.
+		slog.Info("keeping existing ollama CLI", "cli", cmd)
+		return
 	}
 
 	code := C.installSymlink(cliPath)
@@ -2033,6 +2109,16 @@ func doubleClick(ptr unsafe.Pointer) {
 //export handleConnectURL
 func handleConnectURL() {
 	handleConnectURLScheme()
+}
+
+// defaultServerHost keeps this app's server off the official app's port 11434.
+// Sharing a port would make each app stop the other's server.
+const defaultServerHost = "127.0.0.1:11439"
+
+func init() {
+	if os.Getenv("OLLAMA_HOST") == "" {
+		os.Setenv("OLLAMA_HOST", defaultServerHost)
+	}
 }
 
 //export LockVault

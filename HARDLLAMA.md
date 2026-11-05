@@ -39,9 +39,35 @@ The app locks when you quit, lock your screen, your Mac sleeps, after 15 minutes
 - Cloud models and web search, which still send your content off your device, even in private chats
 - Anything you put in `~/.ollama/history`. Set `OLLAMA_NOHISTORY=1` to turn off CLI history.
 
-## Don't run the official app
+## Alongside the official app
 
-Uninstall the official `Ollama.app`. It doesn't know about encryption, so it would show scrambled text and save new chats unencrypted. It also closes HardLlama if it starts, because the newest launch wins.
+HardLlama has its own identity, so it can be installed next to `Ollama.app`. Neither app closes the other, and installing HardLlama doesn't touch your existing Ollama chats.
+
+| | HardLlama | Official Ollama |
+|---|---|---|
+| Bundle ID | `com.hardllama.app` | `com.electron.ollama` |
+| Chats | `~/Library/Application Support/HardLlama` | `~/Library/Application Support/Ollama` |
+| Server port | 11439 | 11434 |
+| Logs | `~/.ollama/logs/hardllama-*.log` | `~/.ollama/logs/*.log` |
+
+Some things are still shared:
+
+- **Models.** Both use `~/.ollama/models`, so a model downloaded in one is available in the other.
+- **The `ollama` command.** HardLlama only installs it if you don't already have one.
+- **`ollama://` links.** Both apps register these, so a sign-in link may open the wrong one.
+
+## Downloading models
+
+Pick a model in the app and send a message, and it downloads as usual. To use the `ollama` command with HardLlama, point it at HardLlama's port:
+
+```sh
+export OLLAMA_HOST=127.0.0.1:11439
+ollama pull gemma3
+```
+
+Add that `export` to `~/.zshrc` to make it permanent. Tools that assume port 11434 need the same setting.
+
+Models come from Ollama's registry, so turning off app updates doesn't affect downloads. A brand new model may need a newer server, though. See [Updating](#updating).
 
 ## Building
 
