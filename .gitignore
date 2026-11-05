@@ -16,3 +16,10 @@ llama/build
 llama/vendor
 /ollama
 integration/testdata/models/
+
+# Local chat data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sparsebundle
+*.plaintext-backup

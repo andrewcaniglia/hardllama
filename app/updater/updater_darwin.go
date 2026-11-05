@@ -97,6 +97,10 @@ func init() {
 }
 
 func DoUpgrade(interactive bool) error {
+	if Disabled {
+		return ErrDisabled
+	}
+
 	// TODO use UpgradeLogFile to record the upgrade details from->to version, etc.
 
 	bundle := getStagedUpdate()
@@ -428,7 +432,7 @@ func getStagedUpdate() string {
 }
 
 func IsUpdatePending() bool {
-	return getStagedUpdate() != ""
+	return !Disabled && getStagedUpdate() != ""
 }
 
 func chownWithAuthorization(user string) bool {

@@ -119,6 +119,10 @@ func getStagedUpdate() string {
 }
 
 func DoUpgrade(interactive bool) error {
+	if Disabled {
+		return ErrDisabled
+	}
+
 	bundle := getStagedUpdate()
 	if bundle == "" {
 		return fmt.Errorf("failed to lookup downloads")
@@ -363,7 +367,7 @@ func cryptMsgClose(msg windows.Handle) error {
 }
 
 func IsUpdatePending() bool {
-	return getStagedUpdate() != ""
+	return !Disabled && getStagedUpdate() != ""
 }
 
 func DoUpgradeAtStartup() error {

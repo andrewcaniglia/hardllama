@@ -29,6 +29,12 @@ import (
 	"github.com/ollama/ollama/auth"
 )
 
+// Disabled turns off all update checks, downloads and installs. This build is
+// not an official release, and installing an update would replace it with one.
+var Disabled = true
+
+var ErrDisabled = errors.New("updates are disabled in this build")
+
 var (
 	UpdateCheckURLBase      = "https://ollama.com/api/update"
 	UpdateDownloaded        = false
@@ -135,6 +141,10 @@ func (u *Updater) checkForUpdate(ctx context.Context) (bool, UpdateResponse) {
 }
 
 func (u *Updater) DownloadNewRelease(ctx context.Context, updateResp UpdateResponse) error {
+	if Disabled {
+		return ErrDisabled
+	}
+
 	// Create a cancellable context for this download
 	downloadCtx, cancel := context.WithCancel(ctx)
 	u.cancelDownloadLock.Lock()
@@ -357,6 +367,12 @@ func (u *Updater) StartBackgroundUpdaterChecker(ctx context.Context, cb func(str
 }
 
 func (u *Updater) startBackgroundUpdaterChecker(ctx context.Context, cb func(string) error) <-chan struct{} {
+	if Disabled {
+		done := make(chan struct{})
+		close(done)
+		return done
+	}
+
 	u.checkNow = make(chan struct{}, 1)
 	u.checkNow <- struct{}{} // Trigger first check after initial delay
 	done := make(chan struct{})

@@ -204,6 +204,10 @@ func maybeMoveAndRestart() appMove {
 		// Typically developer mode with 'go run ./cmd/app'
 		return CannotMove
 	}
+	// This build must not offer to replace itself with the official app path.
+	if updater.Disabled {
+		return AlreadyMoved
+	}
 	// Respect users intent if they chose "keep" vs. "replace" when dragging to Applications
 	if strings.HasPrefix(updater.BundlePath, strings.TrimSuffix(updater.SystemWidePath, filepath.Ext(updater.SystemWidePath))) {
 		return AlreadyMoved

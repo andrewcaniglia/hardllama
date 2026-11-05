@@ -43,7 +43,7 @@ export function VaultSetupScreen() {
           Create a password
         </h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Your chats are encrypted with this password, and Ollama asks for it
+          Your chats are encrypted with this password, and HardLlama asks for it
           every time it opens.
         </p>
         <p className="text-sm text-red-600 dark:text-red-400">

@@ -519,7 +519,7 @@ static NSImage *ollamaApplicationIcon(void) {
     [self applyShowAppsInMenu:shouldShowAppsInMenu()];
 
     NSMenuItem *appsMenuItem =
-        [[NSMenuItem alloc] initWithTitle:@"Open Ollama"
+        [[NSMenuItem alloc] initWithTitle:@"Open HardLlama"
                                    action:@selector(appsUI)
                             keyEquivalent:@""];
     [appsMenuItem setTarget:self];
@@ -548,7 +548,7 @@ static NSImage *ollamaApplicationIcon(void) {
 
     [menu addItem:[NSMenuItem separatorItem]];
 
-    [menu addItemWithTitle:@"Quit Ollama"
+    [menu addItemWithTitle:@"Quit HardLlama"
                     action:@selector(requestQuit)
              keyEquivalent:@"q"];
 
@@ -1543,7 +1543,7 @@ didCompleteWithError:(NSError *)error {
         self.statusItem.button.image = statusImage;
     } else {
         self.statusItem.button.image = nil;
-        self.statusItem.button.title = @"Ollama";
+        self.statusItem.button.title = @"HardLlama";
     }
 }
 
@@ -1573,7 +1573,7 @@ didCompleteWithError:(NSError *)error {
         NSAlert *alert = [[NSAlert alloc] init];
         [alert setAlertStyle:NSAlertStyleWarning];
         [alert setIcon:ollamaApplicationIcon()];
-        [alert setMessageText:@"Restart Claude before quitting Ollama?"];
+        [alert setMessageText:@"Restart Claude before quitting HardLlama?"];
         [alert setInformativeText:
             @"Claude must restart before Ollama quits. Any running task will stop."];
         [alert addButtonWithTitle:@"Restart Claude and Quit"];
@@ -1604,7 +1604,7 @@ didCompleteWithError:(NSError *)error {
             NSAlert *alert = [[NSAlert alloc] init];
             [alert setAlertStyle:NSAlertStyleWarning];
             [alert setIcon:ollamaApplicationIcon()];
-            [alert setMessageText:@"Unable to quit Ollama"];
+            [alert setMessageText:@"Unable to quit HardLlama"];
             [alert setInformativeText:
                 @"Ollama couldn’t update Claude, so it is still running. Check the Ollama log and try again."];
             [alert runModal];

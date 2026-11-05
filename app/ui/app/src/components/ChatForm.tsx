@@ -704,7 +704,7 @@ function ChatForm({
 
       {(isPrivateChat || (chatId === "new" && privateEnabled)) && (
         <p className="mb-2 px-1 text-xs text-neutral-500 dark:text-neutral-400">
-          Private chat: not saved, and gone when Ollama quits. Cloud models and
+          Private chat: not saved, and gone when HardLlama quits. Cloud models and
           web search still send content off this device.
         </p>
       )}

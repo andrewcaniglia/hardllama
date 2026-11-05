@@ -20,6 +20,7 @@ import (
 
 	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/app/store"
+	"github.com/ollama/ollama/app/updater"
 	"github.com/ollama/ollama/cmd/launch"
 	"github.com/ollama/ollama/internal/proxy"
 )
@@ -3282,4 +3283,14 @@ func setClaudeProxyRetry(t *testing.T, wait, poll time.Duration) {
 		claudeProxyRetryWait = previousWait
 		claudeProxyRetryPoll = previousPoll
 	})
+}
+
+func TestMaybeMoveSkippedWhenUpdatesDisabled(t *testing.T) {
+	previous := updater.BundlePath
+	updater.BundlePath = "/Applications/HardLlama.app"
+	t.Cleanup(func() { updater.BundlePath = previous })
+
+	if got := maybeMoveAndRestart(); got != AlreadyMoved {
+		t.Fatalf("expected no move, got %v", got)
+	}
 }
