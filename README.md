@@ -12,29 +12,9 @@ Start building with open models. Access the latest releases locally or in the cl
 
 ## Download
 
-### macOS
+HardLlama isn't distributed as a download. Build it yourself on an Apple Silicon Mac by following [Building](HARDLLAMA.md#building).
 
-```shell
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-or [download manually](https://ollama.com/download/Ollama.dmg)
-
-### Windows
-
-```shell
-irm https://ollama.com/install.ps1 | iex
-```
-
-or [download manually](https://ollama.com/download/OllamaSetup.exe)
-
-### Linux
-
-```shell
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-[Manual install instructions](https://docs.ollama.com/linux#manual-install)
+The install commands on ollama.com install the official Ollama app, not HardLlama. You can install both side by side; see [Alongside the official app](HARDLLAMA.md#alongside-the-official-app).
 
 ### Docker
 
