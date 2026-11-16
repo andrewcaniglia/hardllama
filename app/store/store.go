@@ -205,6 +205,7 @@ type Store struct {
 
 	private privateChats
 	drafts  drafts
+	pending pendingReplies
 
 	vaultTimerMu sync.Mutex
 	vaultTimer   *time.Timer

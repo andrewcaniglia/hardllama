@@ -628,7 +628,11 @@ func (s *Store) UnlockVault(password string) error {
 		return err
 	}
 	s.startVaultTimer()
-	return s.drafts.ensureKey(s.db.vault.Load())
+	if err := s.drafts.ensureKey(s.db.vault.Load()); err != nil {
+		return err
+	}
+	s.addReplies()
+	return nil
 }
 
 // ChangeVaultPassword replaces the password. The vault stays unlocked.

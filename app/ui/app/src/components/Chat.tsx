@@ -14,6 +14,7 @@ import {
   useDismissStaleModel,
 } from "@/hooks/useChats";
 import { useHealth } from "@/hooks/useHealth";
+import { useReplyFinishing } from "@/hooks/useReplyFinishing";
 import { useMessageAutoscroll } from "@/hooks/useMessageAutoscroll";
 import {
   useState,
@@ -33,6 +34,7 @@ export default function Chat({ chatId }: { chatId: string }) {
   const navigate = useNavigate();
   const chatQuery = useChat(chatId === "new" ? "" : chatId);
   const chatErrorQuery = useChatError(chatId === "new" ? "" : chatId);
+  const replyFinishing = useReplyFinishing(chatId === "new" ? "" : chatId);
   const { selectedModel } = useSelectedModel(chatId);
   const hasVisionCapability = useHasVisionCapability(selectedModel?.model);
   const shouldShowStaleDisplay = useShouldShowStaleDisplay(selectedModel);
@@ -239,6 +241,15 @@ export default function Chat({ chatId }: { chatId: string }) {
           </section>
 
           <div className="flex-shrink-0 sticky bottom-0 z-20">
+            {replyFinishing && (
+              <p
+                role="status"
+                className="pb-2 text-center text-xs text-neutral-500 dark:text-neutral-400"
+              >
+                Finishing the reply that was being written when HardLlama
+                locked…
+              </p>
+            )}
             {selectedModel && shouldShowStaleDisplay && (
               <div className="pb-2">
                 <DisplayStale

@@ -1733,6 +1733,15 @@ func (db *database) setContextUsage(chatID, value string) error {
 	return nil
 }
 
+// messageCount counts a chat's messages. It works while locked.
+func (db *database) messageCount(chatID string) (int, error) {
+	var n int
+	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM messages WHERE chat_id = ?`, chatID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count messages: %w", err)
+	}
+	return n, nil
+}
+
 func (db *database) getModelServer() (string, error) {
 	var value string
 	if err := db.conn.QueryRow(`SELECT model_server FROM hardllama_settings WHERE id = 1`).Scan(&value); err != nil {

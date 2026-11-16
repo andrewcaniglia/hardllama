@@ -825,3 +825,9 @@ export async function estimateAttachments(
   );
   return data.attachments;
 }
+
+// Whether a reply is still being written after chats locked.
+export const getReplyFinishing = (chatId: string) =>
+  jsonRequest<{ finishing: boolean }>(
+    `/api/v1/chat/${encodeURIComponent(chatId)}/finishing`,
+  );

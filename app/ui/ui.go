@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -323,6 +324,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/create-chat", handle(s.createChat))
 	mux.Handle("PUT /api/v1/chat/{id}/rename", handle(s.renameChat))
 	mux.Handle("GET /api/v1/chat/{id}/context", handle(s.getContextUsage))
+	mux.Handle("GET /api/v1/chat/{id}/finishing", handle(s.getReplyFinishing))
 	mux.Handle("POST /api/v1/estimate-attachments", handle(s.estimateAttachments))
 	mux.Handle("GET /api/v1/model-context-length", handle(s.getModelContextLength))
 
@@ -1050,8 +1052,17 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	ctx, cancel := context.WithCancel(r.Context())
+	// Leaving the chat stops the reply, unless chats locked while it was
+	// being written. Then it keeps going after the window stops listening.
+	var keepGoing atomic.Bool
+	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	defer cancel()
+	stopWatching := context.AfterFunc(r.Context(), func() {
+		if !keepGoing.Load() {
+			cancel()
+		}
+	})
+	defer stopWatching()
 
 	_, cancelLoading := context.WithCancel(ctx)
 	loading := false
@@ -1197,6 +1208,26 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 	// What the engine reports for the last request, for the context counter.
 	var usage *store.ContextUsage
 
+	var chatReq *api.ChatRequest
+	afterLock := &lockedReply{
+		store:   s.Store,
+		chatID:  chat.ID,
+		model:   req.Model,
+		private: chat.Private,
+		onLock: func() {
+			keepGoing.Store(true)
+			// The window shows the lock screen, so it's done with this
+			// reply. Nothing more is sent to it.
+			json.NewEncoder(w).Encode(responses.ChatEvent{EventName: "done"})
+			flusher.Flush()
+			// Don't keep the chat readable in memory while locked.
+			chat.Messages = nil
+			if chatReq != nil {
+				chatReq.Messages = nil
+			}
+		},
+	}
+
 	for {
 		var toolsExecuted bool
 
@@ -1227,12 +1258,12 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 				reqChat = &temp
 			}
 		}
-		chatReq, err := s.buildChatRequest(reqChat, req.Model, thinkValue, availableTools)
+		chatReq, err = s.buildChatRequest(reqChat, req.Model, thinkValue, availableTools)
 		if err != nil {
 			return err
 		}
 
-		err = c.Chat(ctx, chatReq, func(res api.ChatResponse) error {
+		err = c.Chat(ctx, chatReq, afterLock.wrap(func(res api.ChatResponse) error {
 			if loading {
 				// Remove the loading indicator on first token
 				cancelLoading()
@@ -1529,7 +1560,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 				}
 			}
 			return nil
-		})
+		}))
+		if afterLock.active.Load() {
+			if err != nil && !errors.Is(err, errToolWhileLocked) {
+				s.log().Warn("reply after locking stopped", "error", err)
+			}
+			s.Store.FinishReply(chat.ID)
+			return nil
+		}
 		if err != nil {
 			s.log().Error("chat stream error", "error", err)
 			errorEvent := s.getError(err)

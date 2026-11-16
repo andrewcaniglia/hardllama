@@ -42,7 +42,7 @@ Encryption uses AES-256-GCM with a random key. That key is stored wrapped by a k
 
 The app locks when you quit, lock your screen, your Mac sleeps, after 15 minutes without typing or clicking in it, or when you click **Lock now** in Settings. It also locks shortly after you switch to another app or close its window, unless you come back first. Choose how long, from instantly to 1 minute, under **Lock after leaving** in Settings.
 
-Locking throws away the key and erases private chats. If it locks during a reply, the rest of that reply isn't saved. A message you were still typing is kept, encrypted and in memory only, and put back when you unlock. Its attachments aren't kept.
+Locking throws away the key and erases private chats. If it locks during a reply, the reply keeps going. The rest of it is encrypted as it's written, held in memory only, and added to the chat when you unlock. If you quit before unlocking, it's lost. A reply stops if it needs a tool while locked, and private chats' replies stop, since locking erases them. A message you were still typing is kept, encrypted and in memory only, and put back when you unlock. Its attachments aren't kept.
 
 **There is no password reset.** If you forget your password, your chats are gone for good.
 
