@@ -153,7 +153,11 @@ func openUI(path string) {
 }
 
 func openAppsUI() {
-	p := C.CString("/connect")
+	path := "/"
+	if thirdPartyAppsEnabled {
+		path = "/connect"
+	}
+	p := C.CString(path)
 	defer C.free(unsafe.Pointer(p))
 	C.uiRequest(p)
 }
@@ -624,6 +628,11 @@ func osRun(_ func(), hasCompletedFirstRun, startHidden, showOnboarding bool, _ s
 }
 
 func reconcileClaudeAppProxy() error {
+	if !thirdPartyAppsEnabled {
+		// Never start the gateway or change Claude Desktop's settings.
+		stopClaudeAppProxy()
+		return nil
+	}
 	configured := claudeDesktop.UsesOllamaGateway()
 	if configured || len(launch.ClaudeDesktopModels()) > 0 {
 		if err := markClaudeDesktopIntegrationUsed(); err != nil {

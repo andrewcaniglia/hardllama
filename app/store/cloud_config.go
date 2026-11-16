@@ -14,6 +14,18 @@ import (
 
 const serverConfigFilename = "server.json"
 
+// cloudAllowed is false in HardLlama. Tests of upstream's cloud setting
+// turn it on with SetCloudAllowedForTesting.
+var cloudAllowed = false
+
+// SetCloudAllowedForTesting lets tests of upstream's cloud setting run. It
+// returns a function that restores the previous value.
+func SetCloudAllowedForTesting(allowed bool) (restore func()) {
+	previous := cloudAllowed
+	cloudAllowed = allowed
+	return func() { cloudAllowed = previous }
+}
+
 type serverConfig struct {
 	DisableOllamaCloud bool `json:"disable_ollama_cloud,omitempty"`
 }
@@ -31,6 +43,11 @@ func (s *Store) CloudStatus() (bool, string, error) {
 	if err := s.ensureDB(); err != nil {
 		return false, "", err
 	}
+	// HardLlama never uses Ollama's cloud: prompts sent to cloud models and
+	// web searches leave the computer.
+	if !cloudAllowed {
+		return true, "hardllama", nil
+	}
 
 	configDisabled, err := readServerConfigCloudDisabled()
 	if err != nil {
@@ -45,6 +62,9 @@ func (s *Store) CloudStatus() (bool, string, error) {
 func (s *Store) SetCloudEnabled(enabled bool) error {
 	if err := s.ensureDB(); err != nil {
 		return err
+	}
+	if enabled && !cloudAllowed {
+		return errors.New("HardLlama doesn't use Ollama's cloud")
 	}
 	return setCloudEnabled(enabled)
 }

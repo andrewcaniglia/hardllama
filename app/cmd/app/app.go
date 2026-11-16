@@ -363,6 +363,11 @@ func main() {
 			slog.Warn("ollama server not ready, continuing anyway", "error", err)
 		}
 
+		// HardLlama doesn't use ollama.com accounts, so it doesn't check in
+		// with ollama.com every time it starts.
+		if !ui.OllamaAccountsEnabled {
+			return
+		}
 		if _, err := uiServer.UserData(ctx); err != nil {
 			slog.Warn("failed to load user data", "error", err)
 		}
@@ -387,6 +392,11 @@ func main() {
 }
 
 func shouldShowOnboarding(settings store.Settings, err error) bool {
+	// Ollama's onboarding is about signing in and connecting other apps,
+	// neither of which HardLlama does. Its own password setup still runs.
+	if !ui.OllamaAccountsEnabled {
+		return false
+	}
 	return err != nil || settings.OnboardingVersion < store.CurrentOnboardingVersion
 }
 
@@ -488,6 +498,10 @@ func checkUserLoggedIn(uiServerPort int) bool {
 
 // handleConnectURLScheme fetches the connect URL and opens it in the browser
 func handleConnectURLScheme() {
+	if !ui.OllamaAccountsEnabled {
+		openUI("/")
+		return
+	}
 	if checkUserLoggedIn(uiServerPort) {
 		slog.Info("user is already logged in, opening app instead")
 		openUI("/")

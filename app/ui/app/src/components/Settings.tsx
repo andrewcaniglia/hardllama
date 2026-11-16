@@ -6,6 +6,7 @@ import { Field, Label, Description } from "@/components/ui/fieldset";
 import { VaultSettings } from "@/components/VaultSettings";
 import { ModelServerSettings } from "@/components/ModelServerSettings";
 import { ShareSettings } from "@/components/ShareSettings";
+import { OLLAMA_ACCOUNTS, THIRD_PARTY_APPS } from "@/lib/hardllama";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -494,145 +495,152 @@ export default function Settings() {
           className="mx-auto max-w-4xl space-y-4 border-0 p-0"
         >
           {/* Connect Ollama Account */}
-          <div className="overflow-hidden rounded-xl bg-white dark:bg-neutral-800">
-            <div className="p-4">
-              <Field>
-                {isLoading ? (
-                  // Loading skeleton, this will only happen if the app started recently
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-2">
-                      <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse w-24"></div>
-                      <div className="h-3 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse w-32"></div>
-                    </div>
-                    <div className="h-10 w-10 bg-neutral-200 dark:bg-neutral-700 rounded-full animate-pulse"></div>
-                  </div>
-                ) : user && user.name ? (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <Label className="text-sm font-medium text-neutral-900 dark:text-white">
-                          {user?.name}
-                        </Label>
+          {OLLAMA_ACCOUNTS && (
+            <div className="overflow-hidden rounded-xl bg-white dark:bg-neutral-800">
+              <div className="p-4">
+                <Field>
+                  {isLoading ? (
+                    // Loading skeleton, this will only happen if the app started recently
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-2">
+                        <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse w-24"></div>
+                        <div className="h-3 bg-neutral-200 dark:bg-neutral-700 rounded animate-pulse w-32"></div>
                       </div>
-                      <Description className="text-sm text-neutral-500 dark:text-neutral-400">
-                        {user?.email}
-                      </Description>
-                      <div className="flex items-center space-x-2 mt-2">
-                        {user?.plan === "free" && (
+                      <div className="h-10 w-10 bg-neutral-200 dark:bg-neutral-700 rounded-full animate-pulse"></div>
+                    </div>
+                  ) : user && user.name ? (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <Label className="text-sm font-medium text-neutral-900 dark:text-white">
+                            {user?.name}
+                          </Label>
+                        </div>
+                        <Description className="text-sm text-neutral-500 dark:text-neutral-400">
+                          {user?.email}
+                        </Description>
+                        <div className="flex items-center space-x-2 mt-2">
+                          {user?.plan === "free" && (
+                            <Button
+                              type="button"
+                              color="dark"
+                              className="px-3 py-2 text-sm font-medium bg-black/90 backdrop-blur-sm text-white rounded-lg border border-white/10 shadow-2xl transition-all duration-300 ease-out relative overflow-hidden group"
+                              onClick={() =>
+                                window.open(
+                                  "https://ollama.com/upgrade",
+                                  "_blank",
+                                )
+                              }
+                            >
+                              <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 via-purple-500/20 to-green-500/20 opacity-60 group-hover:opacity-80 transition-opacity duration-300"></div>
+                              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-out"></div>
+                              <span className="relative z-10 flex items-center space-x-2">
+                                <span>Upgrade</span>
+                              </span>
+                            </Button>
+                          )}
                           <Button
                             type="button"
-                            color="dark"
-                            className="px-3 py-2 text-sm font-medium bg-black/90 backdrop-blur-sm text-white rounded-lg border border-white/10 shadow-2xl transition-all duration-300 ease-out relative overflow-hidden group"
+                            color="white"
+                            className="px-3 py-2 text-sm"
                             onClick={() =>
                               window.open(
-                                "https://ollama.com/upgrade",
+                                "https://ollama.com/settings",
                                 "_blank",
                               )
                             }
                           >
-                            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 via-purple-500/20 to-green-500/20 opacity-60 group-hover:opacity-80 transition-opacity duration-300"></div>
-                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-out"></div>
-                            <span className="relative z-10 flex items-center space-x-2">
-                              <span>Upgrade</span>
-                            </span>
+                            Manage
                           </Button>
-                        )}
-                        <Button
-                          type="button"
-                          color="white"
-                          className="px-3 py-2 text-sm"
-                          onClick={() =>
-                            window.open("https://ollama.com/settings", "_blank")
-                          }
-                        >
-                          Manage
-                        </Button>
-                        <Button
-                          type="button"
-                          color="zinc"
-                          className="px-3 py-2 text-sm"
-                          onClick={() => void handleDisconnectOllamaAccount()}
-                        >
-                          Sign out
-                        </Button>
+                          <Button
+                            type="button"
+                            color="zinc"
+                            className="px-3 py-2 text-sm"
+                            onClick={() => void handleDisconnectOllamaAccount()}
+                          >
+                            Sign out
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                    {user?.avatarurl && (
-                      <img
-                        src={user.avatarurl}
-                        alt={user?.name}
-                        className="h-10 w-10 rounded-full bg-neutral-200 dark:bg-neutral-700 flex-shrink-0"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.className = "hidden";
-                        }}
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label>Ollama account</Label>
-                      <Description>Not connected</Description>
-                    </div>
-                    <Button
-                      type="button"
-                      color="white"
-                      onClick={handleConnectOllamaAccount}
-                      disabled={isRefreshing || isAwaitingConnection}
-                    >
-                      {isRefreshing || isAwaitingConnection ? (
-                        <AnimatedDots />
-                      ) : (
-                        "Sign In"
+                      {user?.avatarurl && (
+                        <img
+                          src={user.avatarurl}
+                          alt={user?.name}
+                          className="h-10 w-10 rounded-full bg-neutral-200 dark:bg-neutral-700 flex-shrink-0"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.className = "hidden";
+                          }}
+                        />
                       )}
-                    </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label>Ollama account</Label>
+                        <Description>Not connected</Description>
+                      </div>
+                      <Button
+                        type="button"
+                        color="white"
+                        onClick={handleConnectOllamaAccount}
+                        disabled={isRefreshing || isAwaitingConnection}
+                      >
+                        {isRefreshing || isAwaitingConnection ? (
+                          <AnimatedDots />
+                        ) : (
+                          "Sign In"
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </Field>
+                {connectionError && (
+                  <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <Text className="text-sm text-red-600 dark:text-red-400">
+                      {connectionError}
+                    </Text>
                   </div>
                 )}
-              </Field>
-              {connectionError && (
-                <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                  <Text className="text-sm text-red-600 dark:text-red-400">
-                    {connectionError}
-                  </Text>
-                </div>
-              )}
+              </div>
             </div>
-          </div>
+          )}
           {/* Local Configuration */}
           <div className="relative overflow-hidden rounded-xl bg-white dark:bg-neutral-800">
             <div className="space-y-4 p-4">
-              <Field>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start space-x-3 flex-1">
-                    <CloudIcon className="mt-1 h-5 w-5 flex-shrink-0 text-black dark:text-neutral-100" />
-                    <div>
-                      <Label>Cloud</Label>
-                      <Description>
-                        {cloudOverriddenByEnv
-                          ? "The OLLAMA_NO_CLOUD environment variable is currently forcing cloud off."
-                          : "Enable cloud models and web search."}
-                      </Description>
+              {OLLAMA_ACCOUNTS && (
+                <Field>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start space-x-3 flex-1">
+                      <CloudIcon className="mt-1 h-5 w-5 flex-shrink-0 text-black dark:text-neutral-100" />
+                      <div>
+                        <Label>Cloud</Label>
+                        <Description>
+                          {cloudOverriddenByEnv
+                            ? "The OLLAMA_NO_CLOUD environment variable is currently forcing cloud off."
+                            : "Enable cloud models and web search."}
+                        </Description>
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <Switch
+                        checked={!cloudDisabled}
+                        disabled={cloudToggleDisabled}
+                        onChange={(checked) => {
+                          if (cloudOverriddenByEnv) {
+                            return;
+                          }
+                          handleCloudUpdate(checked);
+                        }}
+                      />
                     </div>
                   </div>
-                  <div className="flex-shrink-0">
-                    <Switch
-                      checked={!cloudDisabled}
-                      disabled={cloudToggleDisabled}
-                      onChange={(checked) => {
-                        if (cloudOverriddenByEnv) {
-                          return;
-                        }
-                        handleCloudUpdate(checked);
-                      }}
-                    />
-                  </div>
-                </div>
-              </Field>
+                </Field>
+              )}
 
               <VaultSettings />
 
-              {!isWindows && (
+              {THIRD_PARTY_APPS && !isWindows && (
                 <Field>
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex flex-1 items-start space-x-3">
@@ -738,7 +746,7 @@ export default function Settings() {
             </div>
           </div>
 
-          {!isWindows && (
+          {THIRD_PARTY_APPS && !isWindows && (
             <section
               aria-labelledby="apps-settings-heading"
               className="space-y-2"

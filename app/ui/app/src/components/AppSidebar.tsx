@@ -1,6 +1,7 @@
 import { Link } from "@/components/ui/link";
 import { ChatIcon } from "@/components/ChatIcon";
 import { Cog6ToothIcon, RectangleGroupIcon } from "@heroicons/react/24/outline";
+import { THIRD_PARTY_APPS } from "@/lib/hardllama";
 
 type AppSection = "apps" | "chat" | "settings";
 
@@ -12,10 +13,12 @@ export function AppNavigation({ current }: { current: AppSection }) {
 
   return (
     <div className="flex flex-col gap-0.5">
-      <Link to="/connect" className={itemClass("apps")} draggable={false}>
-        <RectangleGroupIcon className="h-5 w-5 stroke-current" />
-        <span className="truncate">Apps</span>
-      </Link>
+      {THIRD_PARTY_APPS && (
+        <Link to="/connect" className={itemClass("apps")} draggable={false}>
+          <RectangleGroupIcon className="h-5 w-5 stroke-current" />
+          <span className="truncate">Apps</span>
+        </Link>
+      )}
       <Link
         to="/c/$chatId"
         params={{ chatId: "new" }}

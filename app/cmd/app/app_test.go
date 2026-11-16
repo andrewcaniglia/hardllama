@@ -16,10 +16,12 @@ func TestShouldShowOnboarding(t *testing.T) {
 		err      error
 		want     bool
 	}{
+		// HardLlama skips Ollama's onboarding, which is about signing in and
+		// connecting other apps.
 		{
 			name:     "fresh install",
 			settings: store.Settings{OnboardingVersion: 0},
-			want:     true,
+			want:     false,
 		},
 		{
 			name:     "completed onboarding",
@@ -29,7 +31,7 @@ func TestShouldShowOnboarding(t *testing.T) {
 		{
 			name: "settings failure",
 			err:  errors.New("settings unavailable"),
-			want: true,
+			want: false,
 		},
 	}
 

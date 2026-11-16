@@ -21,6 +21,17 @@ const mocks = vi.hoisted(() => ({
     invalidateQueries: vi.fn(),
   },
   settings: null as SettingsType | null,
+  // Upstream's tests run with HardLlama's hidden features shown.
+  features: { apps: true, accounts: true },
+}));
+
+vi.mock("@/lib/hardllama", () => ({
+  get THIRD_PARTY_APPS() {
+    return mocks.features.apps;
+  },
+  get OLLAMA_ACCOUNTS() {
+    return mocks.features.accounts;
+  },
 }));
 
 vi.mock("@/components/ClaudeDesktopModelsSettings", () => ({
@@ -174,6 +185,7 @@ function deferred<T>() {
 describe("Settings reset interactions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.features = { apps: true, accounts: true };
     mocks.isWindows = false;
     mocks.settings = new SettingsType({ ContextLength: 65_536 });
     mocks.updateSettings.mockResolvedValue({ settings: mocks.settings });
@@ -239,6 +251,52 @@ describe("Settings reset interactions", () => {
 
       expect(renderer!.root.findByType("fieldset").props.disabled).toBe(false);
       expect(renderer!.root.findAllByType(Badge)).toHaveLength(1);
+    } finally {
+      await act(async () => {
+        renderer?.unmount();
+        await Promise.resolve();
+      });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("hides other companies' apps, the account and cloud in HardLlama", async () => {
+    mocks.features = { apps: false, accounts: false };
+
+    let renderer;
+    try {
+      await act(async () => {
+        renderer = create(<Settings />);
+        await Promise.resolve();
+      });
+
+      for (const label of ["Claude settings", "ChatGPT settings"]) {
+        expect(
+          renderer!.root.findAllByProps({ "aria-label": label }),
+        ).toHaveLength(0);
+      }
+      const text = textContent(renderer!.root);
+      for (const hidden of [
+        "Show apps in menu",
+        "Sign out",
+        "Sign in",
+        "Cloud",
+      ]) {
+        expect(text).not.toContain(hidden);
+      }
+
+      // Reset still works without them.
+      const resetButton = renderer!.root
+        .findAllByType("button")
+        .find((button) => textContent(button).includes("Reset to defaults"));
+      if (!resetButton) throw new Error("Reset button not found");
+      await act(async () => {
+        resetButton.props.onClick();
+        await vi.waitFor(() => expect(mocks.updateSettings).toHaveBeenCalled());
+      });
+      expect(mocks.updateCloudSetting).not.toHaveBeenCalled();
+      expect(mocks.resetChatGPTModels).not.toHaveBeenCalled();
+      expect(mocks.resetClaudeMappings).not.toHaveBeenCalled();
     } finally {
       await act(async () => {
         renderer?.unmount();

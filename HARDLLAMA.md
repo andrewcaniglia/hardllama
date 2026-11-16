@@ -11,6 +11,8 @@ The `ollama` server, models and CLI are unchanged. Only the desktop app is diffe
 - **Private chats.** Click the lock button before your first message to keep a chat in memory only. Nothing is written to disk, and it's gone when the app quits or locks.
 - **Deleted chats are overwritten** rather than just unlinked.
 - **Updates are off.** The app doesn't check for, download or install updates. See [Updating](#updating).
+- **Nothing leaves your computer by accident.** Ollama's paid cloud models, web search and ollama.com sign-in are gone, and the app doesn't contact ollama.com when it starts. Only downloading models, and checking whether a model has an update, talk to ollama.com.
+- **No connections to other companies' AI apps.** The Apps page, the ChatGPT and Claude Desktop integrations, their installers, the Claude Desktop gateway and their menu bar items are gone.
 
 ## What's encrypted
 
@@ -28,7 +30,7 @@ The `ollama` server, models and CLI are unchanged. Only the desktop app is diffe
 
 The whole file can't be encrypted, because the `ollama` CLI reads this database and the app needs its settings before you can enter a password. The selected model and working folder read as empty until you unlock.
 
-HardLlama doesn't save your ollama.com account details. The official app caches your name, email and plan; HardLlama deletes that cache.
+HardLlama doesn't sign in to ollama.com or save account details. The official app caches your name, email and plan; HardLlama deletes that cache.
 
 Databases from earlier HardLlama versions only encrypted chat content. The first unlock with this version encrypts the rest and removes the old plain text from the file.
 
@@ -46,10 +48,9 @@ To change your password, open **Settings** and click **Change password**. New pa
 
 - Someone looking at your screen, or anything allowed to record it
 - Root access or malware reading the app's memory while it's unlocked, or capturing your password as you type it
-- Cloud models and web search, which still send your content off your device, even in private chats
 - Anything you put in `~/.ollama/history`. Set `OLLAMA_NOHISTORY=1` to turn off CLI history.
 - Models, and any system prompts saved in them, in `~/.ollama/models`. That includes sessions saved with `/save` in the CLI. The server reads these directly, so HardLlama can't encrypt them.
-- `~/.ollama/id_ed25519`, the key that identifies you to ollama.com. Only your account can read it.
+- `~/.ollama/id_ed25519`, the key that identifies you to ollama.com. HardLlama doesn't use it, but the official app and `ollama` command can. Only your account can read it.
 - Other programs on your Mac using the server on port 11439. It doesn't require a password, but it doesn't store your chats either.
 - A weak password. Anyone with a copy of the database can keep guessing, so use a long one. Passwords set before the 12-character minimum keep working; change yours if it's shorter.
 
@@ -113,7 +114,7 @@ Some things are still shared:
 
 - **Models.** Both use `~/.ollama/models`, so a model downloaded in one is available in the other.
 - **The `ollama` command.** HardLlama only installs it if you don't already have one.
-- **`ollama://` links.** Both apps register these, so a sign-in link may open the wrong one.
+- **`ollama://` links.** Both apps register these. In HardLlama they just open the app.
 
 ## Downloading models
 

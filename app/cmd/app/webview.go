@@ -222,8 +222,10 @@ func (w *Webview) Run(path string) unsafe.Pointer {
 			showWindow(wv.Window())
 		})
 
-		bindClaudeDesktop(wv)
-		bindCodexDesktop(wv)
+		if thirdPartyAppsEnabled {
+			bindClaudeDesktop(wv)
+			bindCodexDesktop(wv)
+		}
 
 		wv.Bind("close", func() {
 			hideWindow(wv.Window())

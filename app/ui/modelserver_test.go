@@ -169,9 +169,15 @@ func TestPairedModelServer(t *testing.T) {
 	mac.handler.ServeHTTP(httptest.NewRecorder(), withUIHeaders())
 	noUIHeaders(t, remote)
 
-	// The ollama.com account is always this computer's.
-	if rec := mac.request(http.MethodPost, "/api/me", ""); !strings.Contains(rec.Body.String(), "local-account") {
-		t.Fatalf("account came from the other computer: %s", rec.Body)
+	// HardLlama doesn't use ollama.com accounts, so account requests reach
+	// neither engine, which would contact ollama.com.
+	localBefore, remoteBefore := local.count(), remote.count()
+	if rec := mac.request(http.MethodPost, "/api/me", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("account request: %d %s", rec.Code, rec.Body)
+	}
+	mac.request(http.MethodPost, "/api/signout", "")
+	if local.count() != localBefore || remote.count() != remoteBefore {
+		t.Fatal("account request reached an engine")
 	}
 
 	// The sharing computer lists the device, without its token.

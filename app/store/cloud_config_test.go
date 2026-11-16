@@ -10,6 +10,8 @@ import (
 )
 
 func TestCloudDisabled(t *testing.T) {
+	defer SetCloudAllowedForTesting(true)()
+
 	tests := []struct {
 		name          string
 		envValue      string
@@ -92,6 +94,8 @@ func TestCloudDisabled(t *testing.T) {
 }
 
 func TestSetCloudEnabled(t *testing.T) {
+	defer SetCloudAllowedForTesting(true)()
+
 	tmpHome := t.TempDir()
 	setTestHome(t, tmpHome)
 
@@ -126,5 +130,34 @@ func TestSetCloudEnabled(t *testing.T) {
 	}
 	if got["another_key"] != "value" {
 		t.Fatalf("another_key = %v, want value", got["another_key"])
+	}
+}
+
+// HardLlama never uses Ollama's cloud, whatever the setting says.
+func TestCloudAlwaysOffInHardLlama(t *testing.T) {
+	tmpHome := t.TempDir()
+	setTestHome(t, tmpHome)
+	t.Setenv("OLLAMA_NO_CLOUD", "")
+
+	configDir := filepath.Join(tmpHome, ".ollama")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, serverConfigFilename), []byte(`{"disable_ollama_cloud":false}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Store{DBPath: filepath.Join(tmpHome, "db.sqlite")}
+	defer s.Close()
+
+	disabled, source, err := s.CloudStatus()
+	if err != nil || !disabled || source != "hardllama" {
+		t.Fatalf("CloudStatus() = %v, %q, %v; want disabled by hardllama", disabled, source, err)
+	}
+	if err := s.SetCloudEnabled(true); err == nil {
+		t.Fatal("cloud turned on")
+	}
+	if err := s.SetCloudEnabled(false); err != nil {
+		t.Fatal(err)
 	}
 }

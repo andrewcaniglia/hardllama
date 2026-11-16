@@ -45,6 +45,11 @@ import (
 
 var CORS = envconfig.Bool("OLLAMA_CORS")
 
+// OllamaAccountsEnabled is false in HardLlama: it doesn't sign in to
+// ollama.com, use Ollama's paid cloud models or web search, or contact
+// ollama.com about the account. Downloading models is unaffected.
+const OllamaAccountsEnabled = false
+
 // OllamaDotCom returns the URL for ollama.com, allowing override via environment variable
 var OllamaDotCom = func() string {
 	if url := os.Getenv("OLLAMA_DOT_COM_URL"); url != "" {
@@ -356,8 +361,18 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/version", ollamaProxy)
 	mux.Handle("GET /api/status", ollamaProxy)
 	mux.Handle("HEAD /api/version", ollamaProxy)
-	mux.Handle("POST /api/me", localProxy)
-	mux.Handle("POST /api/signout", localProxy)
+	if OllamaAccountsEnabled {
+		mux.Handle("POST /api/me", localProxy)
+		mux.Handle("POST /api/signout", localProxy)
+	} else {
+		// The engine would ask ollama.com, signed with this computer's key.
+		mux.Handle("POST /api/me", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			writeError(w, http.StatusUnauthorized, errors.New("HardLlama doesn't use ollama.com accounts"))
+		}))
+		mux.Handle("POST /api/signout", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+	}
 	mux.Handle("GET /api/experimental/model-recommendations", ollamaProxy)
 
 	// React app - catch all non-API routes and serve the React app

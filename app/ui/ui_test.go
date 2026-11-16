@@ -199,6 +199,8 @@ func TestGetIntegrationStatuses(t *testing.T) {
 }
 
 func TestHandlePostApiCloudSetting(t *testing.T) {
+	defer store.SetCloudAllowedForTesting(true)()
+
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 	t.Setenv("USERPROFILE", tmpHome) // os.UserHomeDir uses USERPROFILE on Windows.
@@ -261,6 +263,8 @@ func TestHandlePostApiCloudSetting(t *testing.T) {
 }
 
 func TestHandleGetApiCloudSetting(t *testing.T) {
+	defer store.SetCloudAllowedForTesting(true)()
+
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 	t.Setenv("USERPROFILE", tmpHome) // os.UserHomeDir uses USERPROFILE on Windows.

@@ -139,6 +139,8 @@ func TestServerCmd(t *testing.T) {
 }
 
 func TestServerCmdCloudSettingEnv(t *testing.T) {
+	defer store.SetCloudAllowedForTesting(true)()
+
 	tests := []struct {
 		name          string
 		envValue      string
@@ -469,4 +471,25 @@ func TestGetInferenceInfoTimeout(t *testing.T) {
 	if !strings.Contains(err.Error(), "timeout") {
 		t.Fatalf("unexpected error: %s", err)
 	}
+}
+
+// HardLlama's server never uses Ollama's cloud.
+func TestServerCmdAlwaysNoCloud(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
+	t.Setenv("OLLAMA_NO_CLOUD", "")
+
+	st := &store.Store{DBPath: filepath.Join(t.TempDir(), "db.sqlite")}
+	defer st.Close()
+	cmd, err := (&Server{store: st}).cmd(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range cmd.Env {
+		if env == "OLLAMA_NO_CLOUD=1" {
+			return
+		}
+	}
+	t.Fatal("server started without OLLAMA_NO_CLOUD=1")
 }

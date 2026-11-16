@@ -20,6 +20,10 @@ static NSString *const ChatGPTDownloadPageURL = @"https://chatgpt.com/download";
 static NSString *const ChatGPTDiskImageURL =
     @"https://persistent.oaistatic.com/codex-app-prod/Codex.dmg";
 static NSString *const ShowAppsInMenuDefaultsKey = @"ShowAppsInMenu";
+
+// HardLlama leaves out Ollama's connections to other companies' AI apps. This
+// matches thirdPartyAppsEnabled in hardllama_features.go.
+static const BOOL ThirdPartyAppsEnabled = NO;
 static NSBundle *OllamaResourceBundle(void);
 
 typedef NS_ENUM(NSInteger, DesktopDownloadKind) {
@@ -705,6 +709,10 @@ static NSImage *ollamaApplicationIcon(void) {
 }
 
 - (void)refreshClaudeAppState {
+    if (!ThirdPartyAppsEnabled) {
+        [self applyShowAppsInMenu:NO];
+        return;
+    }
     BOOL installed = IsClaudeDesktopInstalled();
     BOOL startFailed = ClaudeGatewayStartFailed();
     BOOL portConflict = startFailed && ClaudeGatewayPortConflict();
@@ -725,6 +733,10 @@ static NSImage *ollamaApplicationIcon(void) {
 }
 
 - (void)refreshCodexAppState {
+    if (!ThirdPartyAppsEnabled) {
+        [self applyShowAppsInMenu:NO];
+        return;
+    }
     BOOL installed = IsCodexDesktopInstalled();
     BOOL connected = IsCodexDesktopConnected();
     BOOL disconnectPending = IsCodexDesktopDisconnectPending();
@@ -747,6 +759,7 @@ static NSImage *ollamaApplicationIcon(void) {
 }
 
 - (void)applyShowAppsInMenu:(BOOL)visible {
+    visible = visible && ThirdPartyAppsEnabled;
     BOOL claudeVisible = visible && HasUsedClaudeDesktopIntegration();
     // Keep the installation flow accessible from the menu.
     BOOL codexVisible = visible;
@@ -945,6 +958,10 @@ static NSImage *ollamaApplicationIcon(void) {
 }
 
 - (enum ClaudeInstallResult)downloadDesktopApp:(DesktopDownloadKind)kind {
+    // Never download another company's app.
+    if (!ThirdPartyAppsEnabled) {
+        return ClaudeInstallFailed;
+    }
     if (self.claudeDownloadTask != nil) {
         return ClaudeInstallCancelled;
     }
@@ -1284,6 +1301,9 @@ didCompleteWithError:(NSError *)error {
 }
 
 - (void)toggleClaudeAppProxy:(NSButton *)sender {
+    if (!ThirdPartyAppsEnabled) {
+        return;
+    }
     BOOL enabled = sender.state == NSControlStateValueOn;
     if (enabled && !IsClaudeDesktopInstalled()) {
         [self.claudeAppRow setInactiveStatusText:@"Not installed"];
@@ -1369,6 +1389,9 @@ didCompleteWithError:(NSError *)error {
 }
 
 - (void)toggleCodexApp:(NSButton *)sender {
+    if (!ThirdPartyAppsEnabled) {
+        return;
+    }
     BOOL disconnectPending = IsCodexDesktopDisconnectPending();
     BOOL enabled = sender.state == NSControlStateValueOn && !disconnectPending;
     if (disconnectPending) {
@@ -1439,7 +1462,8 @@ didCompleteWithError:(NSError *)error {
 }
 
 - (void)appsUI {
-    [self uiRequest:@"/connect"];
+    // HardLlama has no Apps page; open chats.
+    [self uiRequest:ThirdPartyAppsEnabled ? @"/connect" : @"/"];
 }
 
 - (void)newChat {
