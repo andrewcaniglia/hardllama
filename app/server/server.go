@@ -177,7 +177,7 @@ func stop(proc *os.Process) error {
 }
 
 func (s *Server) Run(ctx context.Context) error {
-	l, err := openRotatingLog()
+	l, err := openServerLog()
 	if err != nil {
 		return err
 	}
@@ -287,12 +287,12 @@ func (s *Server) cmd(ctx context.Context) (*exec.Cmd, error) {
 func openRotatingLog() (io.WriteCloser, error) {
 	// TODO consider rotation based on size or time, not just every server invocation
 	dir := filepath.Dir(serverLogPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create log directory: %w", err)
 	}
 
 	logrotate.Rotate(serverLogPath)
-	f, err := os.OpenFile(serverLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(serverLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open log file: %w", err)
 	}
@@ -362,7 +362,7 @@ func GetInferenceInfo(ctx context.Context) (*InferenceInfo, error) {
 			return nil, fmt.Errorf("timeout scanning server log for inference compute details")
 		default:
 		}
-		file, err := os.Open(serverLogPath)
+		file, err := readServerLog()
 		if err != nil {
 			slog.Debug("failed to open server log", "log", serverLogPath, "error", err)
 			time.Sleep(time.Second)

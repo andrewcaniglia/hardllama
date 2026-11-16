@@ -16,13 +16,21 @@ The `ollama` server, models and CLI are unchanged. Only the desktop app is diffe
 
 | Encrypted | Not encrypted |
 |---|---|
-| Messages and model thinking | Number of chats and messages |
-| Chat titles | Timestamps |
-| Attachments and their filenames | Who sent each message |
-| Tool arguments and results | Model names and tool names |
-| Browser state | Settings |
+| Messages and model thinking | Number of chats, messages and attachments |
+| Chat titles | How big each one is |
+| Attachments and their filenames | Which messages belong to which chat |
+| Tool calls, arguments and results | Other settings, such as window size |
+| Timestamps | |
+| Who sent each message | |
+| Model names | |
+| Browser state | |
+| Selected model and working folder | |
 
-The whole file can't be encrypted, because the `ollama` CLI reads this database and the app needs its settings before you can enter a password.
+The whole file can't be encrypted, because the `ollama` CLI reads this database and the app needs its settings before you can enter a password. The selected model and working folder read as empty until you unlock.
+
+HardLlama doesn't save your ollama.com account details. The official app caches your name, email and plan; HardLlama deletes that cache.
+
+Databases from earlier HardLlama versions only encrypted chat content. The first unlock with this version encrypts the rest and removes the old plain text from the file.
 
 Encryption uses AES-256-GCM with a random key. That key is stored wrapped by a key derived from your password with Argon2id, and only exists unwrapped in memory while the app is unlocked.
 
@@ -38,6 +46,22 @@ The app locks when you quit, lock your screen, your Mac sleeps, after 15 minutes
 - Root access or malware reading the app's memory while it's unlocked, or capturing your password as you type it
 - Cloud models and web search, which still send your content off your device, even in private chats
 - Anything you put in `~/.ollama/history`. Set `OLLAMA_NOHISTORY=1` to turn off CLI history.
+- Models, and any system prompts saved in them, in `~/.ollama/models`. That includes sessions saved with `/save` in the CLI. The server reads these directly, so HardLlama can't encrypt them.
+- `~/.ollama/id_ed25519`, the key that identifies you to ollama.com. Only your account can read it.
+- Other programs on your Mac using the server on port 11439. It doesn't require a password, but it doesn't store your chats either.
+- A weak password. Anyone with a copy of the database can keep guessing, so use a long one.
+
+None of this has been independently audited.
+
+## Logs
+
+The app's log is in `~/.ollama/logs/hardllama-app.log`, readable only by you. It doesn't include chat IDs, message text, attachment names or tool arguments.
+
+The server's log, which names the models you use and when, is kept in memory rather than written to disk. To write it to `~/.ollama/logs/hardllama-server.log` for debugging, start HardLlama with `HARDLLAMA_SERVER_LOG=1`:
+
+```sh
+HARDLLAMA_SERVER_LOG=1 open -a HardLlama
+```
 
 ## Alongside the official app
 
@@ -48,7 +72,7 @@ HardLlama has its own identity, so it can be installed next to `Ollama.app`. Nei
 | Bundle ID | `com.hardllama.app` | `com.electron.ollama` |
 | Chats | `~/Library/Application Support/HardLlama` | `~/Library/Application Support/Ollama` |
 | Server port | 11439 | 11434 |
-| Logs | `~/.ollama/logs/hardllama-*.log` | `~/.ollama/logs/*.log` |
+| Logs | `~/.ollama/logs/hardllama-app.log` | `~/.ollama/logs/*.log` |
 
 Some things are still shared:
 
@@ -112,4 +136,4 @@ go test ./app/...
 
 This build uses database schema version 20 for the `vault` table. If Ollama ships its own version 20, databases already at 20 would skip their migration. Don't just renumber: resolve it so that both changes are applied to existing HardLlama databases.
 
-Any new upstream column that stores chat content must also be added to `sealedColumns` in `app/store/vault.go`, and its writes must go through `seal`, or it will be saved unencrypted.
+Any new upstream column that stores chat content or details about chats must also be added to `sealedColumns` in `app/store/vault.go`, and its writes must go through `seal` (or `sealTime` for timestamps), or it will be saved unencrypted. Reads of timestamp columns must `CAST` them to text, or the SQLite driver turns encrypted values into the zero time. `assertAllSealed` in `vault_details_test.go` checks every listed column.

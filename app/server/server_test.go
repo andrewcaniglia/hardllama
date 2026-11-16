@@ -4,6 +4,9 @@ package server
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -357,40 +360,110 @@ time=2025-06-30T09:25:56.197-07:00 level=DEBUG source=ggml.go:155 msg="key not f
 			expDefaultCtxLen: 0, // No default context line, should return 0
 		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tmpDir := t.TempDir()
-			serverLogPath = filepath.Join(tmpDir, "server.log")
-			err := os.WriteFile(serverLogPath, []byte(tt.log), 0o644)
-			if err != nil {
-				t.Fatalf("failed to write log file %s: %s", serverLogPath, err)
-			}
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-			defer cancel()
-			info, err := GetInferenceInfo(ctx)
-			if err != nil {
-				t.Fatalf("failed to get inference info: %v", err)
-			}
-			if !reflect.DeepEqual(info.Computes, tt.expComputes) {
-				t.Fatalf("computes mismatch\ngot:\n%#v\nwant:\n%#v", info.Computes, tt.expComputes)
-			}
-			if info.DefaultContextLength != tt.expDefaultCtxLen {
-				t.Fatalf("default context length mismatch: got %d, want %d", info.DefaultContextLength, tt.expDefaultCtxLen)
-			}
-		})
+	for _, onDisk := range []bool{false, true} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%s/onDisk=%v", tt.name, onDisk), func(t *testing.T) {
+				writeTestServerLog(t, onDisk, tt.log)
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				info, err := GetInferenceInfo(ctx)
+				if err != nil {
+					t.Fatalf("failed to get inference info: %v", err)
+				}
+				if !reflect.DeepEqual(info.Computes, tt.expComputes) {
+					t.Fatalf("computes mismatch\ngot:\n%#v\nwant:\n%#v", info.Computes, tt.expComputes)
+				}
+				if info.DefaultContextLength != tt.expDefaultCtxLen {
+					t.Fatalf("default context length mismatch: got %d, want %d", info.DefaultContextLength, tt.expDefaultCtxLen)
+				}
+			})
+		}
 	}
+}
+
+// writeTestServerLog makes log the server's output for the current run.
+func writeTestServerLog(t *testing.T, onDisk bool, log string) {
+	t.Helper()
+
+	oldOnDisk, oldPath := serverLogOnDisk, serverLogPath
+	t.Cleanup(func() {
+		serverLogOnDisk, serverLogPath = oldOnDisk, oldPath
+		serverLogMemory.reset()
+	})
+	serverLogOnDisk = onDisk
+	serverLogPath = filepath.Join(t.TempDir(), "server.log")
+
+	w, err := openServerLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if _, err := io.WriteString(w, log); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServerLogStaysInMemory(t *testing.T) {
+	writeTestServerLog(t, false, "model loaded\n")
+	if _, err := os.Stat(serverLogPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("server log written to disk: %v", err)
+	}
+	data, err := io.ReadAll(must(readServerLog()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "model loaded\n" {
+		t.Fatalf("unexpected log %q", data)
+	}
+}
+
+func TestServerLogOnDiskIsPrivate(t *testing.T) {
+	writeTestServerLog(t, true, "model loaded\n")
+	info, err := os.Stat(serverLogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("server log mode %v, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestMemoryLogKeepsStartAndEnd(t *testing.T) {
+	var m memoryLog
+	start := strings.Repeat("s", memoryLogHeadSize)
+	m.Write([]byte(start))
+	for i := 0; i < 5*memoryLogTailSize/1000; i++ {
+		m.Write([]byte(strings.Repeat("x", 999) + "\n"))
+	}
+	m.Write([]byte("last line\n"))
+
+	data := string(m.Bytes())
+	if !strings.HasPrefix(data, start) {
+		t.Fatal("start of log was dropped")
+	}
+	if !strings.HasSuffix(data, "last line\n") {
+		t.Fatal("end of log was dropped")
+	}
+	if max := memoryLogHeadSize + 1 + memoryLogTailSize; len(data) > max {
+		t.Fatalf("log grew to %d bytes, limit %d", len(data), max)
+	}
+	if len(m.tail) > 2*memoryLogTailSize {
+		t.Fatalf("tail holds %d bytes", len(m.tail))
+	}
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 func TestGetInferenceInfoTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
-	tmpDir := t.TempDir()
-	serverLogPath = filepath.Join(tmpDir, "server.log")
-	err := os.WriteFile(serverLogPath, []byte("foo\nbar\nbaz\n"), 0o644)
-	if err != nil {
-		t.Fatalf("failed to write log file %s: %s", serverLogPath, err)
-	}
-	_, err = GetInferenceInfo(ctx)
+	writeTestServerLog(t, false, "foo\nbar\nbaz\n")
+	_, err := GetInferenceInfo(ctx)
 	if err == nil {
 		t.Fatal("expected timeout")
 	}

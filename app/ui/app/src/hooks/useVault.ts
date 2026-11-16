@@ -20,8 +20,11 @@ export function useVaultStatus() {
       queryClient.removeQueries({
         predicate: (q) => q.queryKey[0] === "chat" || q.queryKey[0] === "chats",
       });
+      // Encrypted settings read as empty while locked.
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
     } else if (wasLocked.current) {
       queryClient.invalidateQueries({ queryKey: ["chats"] });
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
     }
     wasLocked.current = locked;
   }, [locked, queryClient]);

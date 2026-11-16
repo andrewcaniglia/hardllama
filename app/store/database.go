@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -683,92 +684,127 @@ func columnNotExists(err error) bool {
 }
 
 func (db *database) getAllChats() ([]Chat, error) {
-	// Query chats with their first user message and latest update time
-	query := `
-		SELECT 
-			c.id, 
-			c.title, 
-			c.created_at,
-			COALESCE(first_msg.content, '') as first_user_content,
-			COALESCE(datetime(MAX(m.updated_at)), datetime(c.created_at)) as last_updated
-		FROM chats c
-		LEFT JOIN (
-			SELECT chat_id, content, MIN(id) as min_id
-			FROM messages
-			WHERE role = 'user'
-			GROUP BY chat_id
-		) first_msg ON c.id = first_msg.chat_id
-		LEFT JOIN messages m ON c.id = m.chat_id
-		GROUP BY c.id, c.title, c.created_at, first_msg.content
-		ORDER BY last_updated DESC
-	`
-
-	rows, err := db.conn.Query(query)
+	// Roles and timestamps are encrypted, so the first user message and the
+	// latest update are found here rather than in SQL.
+	rows, err := db.conn.Query(`SELECT id, title, CAST(created_at AS TEXT) FROM chats`)
 	if err != nil {
 		return nil, fmt.Errorf("query chats: %w", err)
 	}
 	defer rows.Close()
 
 	var chats []Chat
+	index := map[string]int{}
 	for rows.Next() {
 		var chat Chat
-		var createdAt time.Time
-		var firstUserContent string
-		var lastUpdatedStr string
-
-		err := rows.Scan(
-			&chat.ID,
-			&chat.Title,
-			&createdAt,
-			&firstUserContent,
-			&lastUpdatedStr,
-		)
-
-		// Parse the last updated time
-		lastUpdated, _ := time.Parse("2006-01-02 15:04:05", lastUpdatedStr)
-		if err != nil {
+		var createdAt string
+		if err := rows.Scan(&chat.ID, &chat.Title, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan chat: %w", err)
 		}
-
-		chat.CreatedAt = createdAt
-
 		if chat.Title, err = db.open("title", chat.Title); err != nil {
 			return nil, err
 		}
-		if firstUserContent, err = db.open("content", firstUserContent); err != nil {
+		if chat.CreatedAt, err = db.openTime("created_at", createdAt); err != nil {
 			return nil, err
 		}
+		index[chat.ID] = len(chats)
+		chats = append(chats, chat)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate chats: %w", err)
+	}
+	rows.Close()
+
+	type summary struct {
+		firstUserID int64
+		lastUpdated time.Time
+		hasMessages bool
+	}
+	summaries := make([]summary, len(chats))
+
+	msgRows, err := db.conn.Query(`SELECT chat_id, id, role, CAST(updated_at AS TEXT) FROM messages ORDER BY id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("query messages: %w", err)
+	}
+	defer msgRows.Close()
+	for msgRows.Next() {
+		var chatID, role, updatedAt string
+		var id int64
+		if err := msgRows.Scan(&chatID, &id, &role, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan message: %w", err)
+		}
+		i, ok := index[chatID]
+		if !ok {
+			continue
+		}
+		if role, err = db.open("role", role); err != nil {
+			return nil, err
+		}
+		updated, err := db.openTime("updated_at", updatedAt)
+		if err != nil {
+			return nil, err
+		}
+		sum := &summaries[i]
+		if role == "user" && sum.firstUserID == 0 {
+			sum.firstUserID = id
+		}
+		if !sum.hasMessages || updated.After(sum.lastUpdated) {
+			sum.lastUpdated = updated
+		}
+		sum.hasMessages = true
+	}
+	if err := msgRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate messages: %w", err)
+	}
+	msgRows.Close()
+
+	lastUpdated := make(map[string]time.Time, len(chats))
+	for i := range chats {
+		chat := &chats[i]
+		sum := summaries[i]
+		updated := chat.CreatedAt
+		if sum.hasMessages {
+			updated = sum.lastUpdated
+		}
+		lastUpdated[chat.ID] = updated
 
 		// Add a dummy first user message for the UI to display
 		// This is just for the excerpt, full messages are loaded when needed
 		chat.Messages = []Message{}
-		if firstUserContent != "" {
+		if sum.firstUserID == 0 {
+			continue
+		}
+		var content string
+		if err := db.conn.QueryRow(`SELECT content FROM messages WHERE id = ?`, sum.firstUserID).Scan(&content); err != nil {
+			return nil, fmt.Errorf("query first message: %w", err)
+		}
+		if content, err = db.open("content", content); err != nil {
+			return nil, err
+		}
+		if content != "" {
 			chat.Messages = append(chat.Messages, Message{
 				Role:      "user",
-				Content:   firstUserContent,
-				UpdatedAt: lastUpdated,
+				Content:   content,
+				UpdatedAt: updated,
 			})
 		}
-
-		chats = append(chats, chat)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate chats: %w", err)
-	}
+	sort.SliceStable(chats, func(i, j int) bool {
+		return lastUpdated[chats[i].ID].After(lastUpdated[chats[j].ID])
+	})
 
 	return chats, nil
 }
 
 func (db *database) getChatWithOptions(id string, loadAttachmentData bool) (*Chat, error) {
 	query := `
-		SELECT id, title, created_at, browser_state
+		SELECT id, title, CAST(created_at AS TEXT), browser_state
 		FROM chats
 		WHERE id = ?
 	`
 
 	var chat Chat
-	var createdAt time.Time
+	var createdAt string
 	var browserState sql.NullString
 
 	err := db.conn.QueryRow(query, id).Scan(
@@ -784,7 +820,9 @@ func (db *database) getChatWithOptions(id string, loadAttachmentData bool) (*Cha
 		return nil, fmt.Errorf("query chat: %w", err)
 	}
 
-	chat.CreatedAt = createdAt
+	if chat.CreatedAt, err = db.openTime("created_at", createdAt); err != nil {
+		return nil, err
+	}
 	if chat.Title, err = db.open("title", chat.Title); err != nil {
 		return nil, err
 	}
@@ -839,11 +877,15 @@ func (db *database) saveChat(chat Chat) error {
 	if err != nil {
 		return err
 	}
+	createdAt, err := db.sealTime("created_at", chat.CreatedAt)
+	if err != nil {
+		return err
+	}
 
 	_, err = tx.Exec(query,
 		chat.ID,
 		title,
-		chat.CreatedAt,
+		createdAt,
 		browserState,
 	)
 	if err != nil {
@@ -926,47 +968,19 @@ func (db *database) updateLastMessage(chatID string, msg Message) error {
 		WHERE id = ?
 	`
 
-	var thinkingTimeStart, thinkingTimeEnd sql.NullTime
-	if msg.ThinkingTimeStart != nil {
-		thinkingTimeStart = sql.NullTime{Time: *msg.ThinkingTimeStart, Valid: true}
-	}
-	if msg.ThinkingTimeEnd != nil {
-		thinkingTimeEnd = sql.NullTime{Time: *msg.ThinkingTimeEnd, Valid: true}
-	}
-
-	var modelName sql.NullString
-	if msg.Model != "" {
-		modelName = sql.NullString{String: msg.Model, Valid: true}
-	}
-
-	var toolResultJSON sql.NullString
-	if msg.ToolResult != nil {
-		resultBytes, err := json.Marshal(msg.ToolResult)
-		if err != nil {
-			return fmt.Errorf("marshal tool result: %w", err)
-		}
-		toolResultJSON = sql.NullString{String: string(resultBytes), Valid: true}
-	}
-	if toolResultJSON, err = db.sealNull("tool_result", toolResultJSON); err != nil {
-		return err
-	}
-	content, err := db.seal("content", msg.Content)
-	if err != nil {
-		return err
-	}
-	thinking, err := db.seal("thinking", msg.Thinking)
+	m, err := db.sealMessage(msg)
 	if err != nil {
 		return err
 	}
 
 	result, err := tx.Exec(query,
-		content,
-		thinking,
-		modelName,
-		msg.UpdatedAt,
-		thinkingTimeStart,
-		thinkingTimeEnd,
-		toolResultJSON,
+		m.content,
+		m.thinking,
+		m.modelName,
+		m.updatedAt,
+		m.thinkingStart,
+		m.thinkingEnd,
+		m.toolResult,
 		messageID,
 	)
 	if err != nil {
@@ -1031,7 +1045,7 @@ func (db *database) appendMessage(chatID string, msg Message) error {
 
 func (db *database) getMessages(chatID string, loadAttachmentData bool) ([]Message, error) {
 	query := `
-		SELECT id, role, content, thinking, stream, model_name, created_at, updated_at, thinking_time_start, thinking_time_end, tool_result
+		SELECT id, role, content, thinking, stream, model_name, CAST(created_at AS TEXT), CAST(updated_at AS TEXT), CAST(thinking_time_start AS TEXT), CAST(thinking_time_end AS TEXT), tool_result
 		FROM messages
 		WHERE chat_id = ?
 		ORDER BY id ASC
@@ -1047,9 +1061,10 @@ func (db *database) getMessages(chatID string, loadAttachmentData bool) ([]Messa
 	for rows.Next() {
 		var msg Message
 		var messageID int64
-		var thinkingTimeStart, thinkingTimeEnd sql.NullTime
+		var thinkingTimeStart, thinkingTimeEnd sql.NullString
 		var modelName sql.NullString
 		var toolResult sql.NullString
+		var createdAt, updatedAt string
 
 		err := rows.Scan(
 			&messageID,
@@ -1058,14 +1073,33 @@ func (db *database) getMessages(chatID string, loadAttachmentData bool) ([]Messa
 			&msg.Thinking,
 			&msg.Stream,
 			&modelName,
-			&msg.CreatedAt,
-			&msg.UpdatedAt,
+			&createdAt,
+			&updatedAt,
 			&thinkingTimeStart,
 			&thinkingTimeEnd,
 			&toolResult,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
+		}
+
+		if msg.Role, err = db.open("role", msg.Role); err != nil {
+			return nil, err
+		}
+		if modelName, err = db.openNull("model_name", modelName); err != nil {
+			return nil, err
+		}
+		if msg.CreatedAt, err = db.openTime("created_at", createdAt); err != nil {
+			return nil, err
+		}
+		if msg.UpdatedAt, err = db.openTime("updated_at", updatedAt); err != nil {
+			return nil, err
+		}
+		if msg.ThinkingTimeStart, err = db.openNullTime("thinking_time_start", thinkingTimeStart); err != nil {
+			return nil, err
+		}
+		if msg.ThinkingTimeEnd, err = db.openNullTime("thinking_time_end", thinkingTimeEnd); err != nil {
+			return nil, err
 		}
 
 		if msg.Content, err = db.open("content", msg.Content); err != nil {
@@ -1080,13 +1114,6 @@ func (db *database) getMessages(chatID string, loadAttachmentData bool) ([]Messa
 			return nil, fmt.Errorf("get attachments: %w", err)
 		}
 		msg.Attachments = attachments
-
-		if thinkingTimeStart.Valid {
-			msg.ThinkingTimeStart = &thinkingTimeStart.Time
-		}
-		if thinkingTimeEnd.Valid {
-			msg.ThinkingTimeEnd = &thinkingTimeEnd.Time
-		}
 
 		// Parse tool result from JSON if present
 		if toolResult.Valid && toolResult.String != "" {
@@ -1122,58 +1149,84 @@ func (db *database) getMessages(chatID string, loadAttachmentData bool) ([]Messa
 	return messages, nil
 }
 
+// sealedMessage holds a message's columns as they are written to the
+// database.
+type sealedMessage struct {
+	role, content, thinking string
+	modelName               sql.NullString
+	createdAt, updatedAt    string
+	thinkingStart           sql.NullString
+	thinkingEnd             sql.NullString
+	toolResult              sql.NullString
+}
+
+func (db *database) sealMessage(msg Message) (sealedMessage, error) {
+	var m sealedMessage
+	var err error
+
+	if msg.ToolResult != nil {
+		resultBytes, err := json.Marshal(msg.ToolResult)
+		if err != nil {
+			return m, fmt.Errorf("marshal tool result: %w", err)
+		}
+		m.toolResult = sql.NullString{String: string(resultBytes), Valid: true}
+	}
+	if m.toolResult, err = db.sealNull("tool_result", m.toolResult); err != nil {
+		return m, err
+	}
+	if msg.Model != "" {
+		m.modelName = sql.NullString{String: msg.Model, Valid: true}
+	}
+	if m.modelName, err = db.sealNull("model_name", m.modelName); err != nil {
+		return m, err
+	}
+	if m.role, err = db.seal("role", msg.Role); err != nil {
+		return m, err
+	}
+	if m.content, err = db.seal("content", msg.Content); err != nil {
+		return m, err
+	}
+	if m.thinking, err = db.seal("thinking", msg.Thinking); err != nil {
+		return m, err
+	}
+	if m.createdAt, err = db.sealTime("created_at", msg.CreatedAt); err != nil {
+		return m, err
+	}
+	if m.updatedAt, err = db.sealTime("updated_at", msg.UpdatedAt); err != nil {
+		return m, err
+	}
+	if m.thinkingStart, err = db.sealNullTime("thinking_time_start", msg.ThinkingTimeStart); err != nil {
+		return m, err
+	}
+	if m.thinkingEnd, err = db.sealNullTime("thinking_time_end", msg.ThinkingTimeEnd); err != nil {
+		return m, err
+	}
+	return m, nil
+}
+
 func (db *database) insertMessage(tx *sql.Tx, chatID string, msg Message) (int64, error) {
 	query := `
 		INSERT INTO messages (chat_id, role, content, thinking, stream, model_name, created_at, updated_at, thinking_time_start, thinking_time_end, tool_result)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	var thinkingTimeStart, thinkingTimeEnd sql.NullTime
-	if msg.ThinkingTimeStart != nil {
-		thinkingTimeStart = sql.NullTime{Time: *msg.ThinkingTimeStart, Valid: true}
-	}
-	if msg.ThinkingTimeEnd != nil {
-		thinkingTimeEnd = sql.NullTime{Time: *msg.ThinkingTimeEnd, Valid: true}
-	}
-
-	var modelName sql.NullString
-	if msg.Model != "" {
-		modelName = sql.NullString{String: msg.Model, Valid: true}
-	}
-
-	var toolResultJSON sql.NullString
-	if msg.ToolResult != nil {
-		resultBytes, err := json.Marshal(msg.ToolResult)
-		if err != nil {
-			return 0, fmt.Errorf("marshal tool result: %w", err)
-		}
-		toolResultJSON = sql.NullString{String: string(resultBytes), Valid: true}
-	}
-	toolResultJSON, err := db.sealNull("tool_result", toolResultJSON)
-	if err != nil {
-		return 0, err
-	}
-	content, err := db.seal("content", msg.Content)
-	if err != nil {
-		return 0, err
-	}
-	thinking, err := db.seal("thinking", msg.Thinking)
+	m, err := db.sealMessage(msg)
 	if err != nil {
 		return 0, err
 	}
 
 	result, err := tx.Exec(query,
 		chatID,
-		msg.Role,
-		content,
-		thinking,
+		m.role,
+		m.content,
+		m.thinking,
 		msg.Stream,
-		modelName,
-		msg.CreatedAt,
-		msg.UpdatedAt,
-		thinkingTimeStart,
-		thinkingTimeEnd,
-		toolResultJSON,
+		m.modelName,
+		m.createdAt,
+		m.updatedAt,
+		m.thinkingStart,
+		m.thinkingEnd,
+		m.toolResult,
 	)
 	if err != nil {
 		return 0, err
@@ -1270,6 +1323,12 @@ func (db *database) getToolCalls(messageID int64) ([]ToolCall, error) {
 			return nil, fmt.Errorf("scan tool call: %w", err)
 		}
 
+		if tc.Type, err = db.open("type", tc.Type); err != nil {
+			return nil, err
+		}
+		if tc.Function.Name, err = db.open("function_name", tc.Function.Name); err != nil {
+			return nil, err
+		}
 		if tc.Function.Arguments, err = db.open("function_arguments", tc.Function.Arguments); err != nil {
 			return nil, err
 		}
@@ -1336,11 +1395,19 @@ func (db *database) insertToolCall(tx *sql.Tx, messageID int64, tc ToolCall) err
 	if err != nil {
 		return err
 	}
+	toolType, err := db.seal("type", tc.Type)
+	if err != nil {
+		return err
+	}
+	name, err := db.seal("function_name", tc.Function.Name)
+	if err != nil {
+		return err
+	}
 
 	_, err = tx.Exec(query,
 		messageID,
-		tc.Type,
-		tc.Function.Name,
+		toolType,
+		name,
 		arguments,
 		functionResult,
 	)
@@ -1394,7 +1461,26 @@ func (db *database) getSettings() (Settings, error) {
 		return Settings{}, fmt.Errorf("get settings: %w", err)
 	}
 
+	if s.SelectedModel, err = db.openSetting("selected_model", s.SelectedModel); err != nil {
+		return Settings{}, err
+	}
+	if s.WorkingDir, err = db.openSetting("working_dir", s.WorkingDir); err != nil {
+		return Settings{}, err
+	}
+
 	return s, nil
+}
+
+// openSetting decrypts an encrypted setting. Settings are read before the
+// vault is unlocked, so while it is locked encrypted settings read as empty.
+func (db *database) openSetting(column, value string) (string, error) {
+	if db.vaultLocked() && strings.HasPrefix(value, string(sealedPrefix)) {
+		return "", nil
+	}
+	if db.vaultLocked() {
+		return value, nil
+	}
+	return db.open(column, value)
 }
 
 func (db *database) setSettings(s Settings) error {
@@ -1403,14 +1489,37 @@ func (db *database) setSettings(s Settings) error {
 		lastHomeView = "chat"
 	}
 
-	_, err := db.conn.Exec(`
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
 		UPDATE settings
-		SET expose = ?, survey = ?, browser = ?, models = ?, agent = ?, tools = ?, working_dir = ?, context_length = ?, turbo_enabled = ?, websearch_enabled = ?, selected_model = ?, sidebar_open = ?, last_home_view = ?, onboarding_version = MAX(onboarding_version, ?), think_enabled = ?, think_level = ?, auto_update_enabled = ?, claude_desktop_used = ?
-	`, s.Expose, s.Survey, s.Browser, s.Models, s.Agent, s.Tools, s.WorkingDir, s.ContextLength, s.TurboEnabled, s.WebSearchEnabled, s.SelectedModel, s.SidebarOpen, lastHomeView, s.OnboardingVersion, s.ThinkEnabled, s.ThinkLevel, s.AutoUpdateEnabled, s.ClaudeDesktopUsed)
+		SET expose = ?, survey = ?, browser = ?, models = ?, agent = ?, tools = ?, context_length = ?, turbo_enabled = ?, websearch_enabled = ?, sidebar_open = ?, last_home_view = ?, onboarding_version = MAX(onboarding_version, ?), think_enabled = ?, think_level = ?, auto_update_enabled = ?, claude_desktop_used = ?
+	`, s.Expose, s.Survey, s.Browser, s.Models, s.Agent, s.Tools, s.ContextLength, s.TurboEnabled, s.WebSearchEnabled, s.SidebarOpen, lastHomeView, s.OnboardingVersion, s.ThinkEnabled, s.ThinkLevel, s.AutoUpdateEnabled, s.ClaudeDesktopUsed)
 	if err != nil {
 		return fmt.Errorf("set settings: %w", err)
 	}
-	return nil
+
+	// While the vault is locked the encrypted settings can't be written, and
+	// read as empty, so they are left as they are.
+	if !db.vaultLocked() {
+		selectedModel, err := db.seal("selected_model", s.SelectedModel)
+		if err != nil {
+			return err
+		}
+		workingDir, err := db.seal("working_dir", s.WorkingDir)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE settings SET selected_model = ?, working_dir = ?`, selectedModel, workingDir); err != nil {
+			return fmt.Errorf("set settings: %w", err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (db *database) markOnboardingCompleted() error {
@@ -1517,20 +1626,12 @@ func (db *database) getUser() (*User, error) {
 	return &user, nil
 }
 
-func (db *database) setUser(user User) error {
-	if err := db.clearUser(); err != nil {
-		return fmt.Errorf("before set: %w", err)
-	}
-
-	_, err := db.conn.Exec(`
-		INSERT INTO users (name, email, plan, cached_at)
-		VALUES (?, ?, ?, ?)
-	`, user.Name, user.Email, user.Plan, user.CachedAt)
-	if err != nil {
-		return fmt.Errorf("set user: %w", err)
-	}
-
-	return nil
+// setUser does not store the account. HardLlama doesn't read the cached
+// account, and keeping someone's name and email out of the database is
+// simpler than encrypting them. Any account cached by an earlier version is
+// removed.
+func (db *database) setUser(User) error {
+	return db.clearUser()
 }
 
 func (db *database) clearUser() error {

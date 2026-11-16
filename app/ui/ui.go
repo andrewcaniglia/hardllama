@@ -245,7 +245,7 @@ func (s *Server) Handler() http.Handler {
 
 				log.Log(r.Context(), level, "site.serveHTTP",
 					"http.method", r.Method,
-					"http.path", r.URL.Path,
+					// The path is not logged because it contains chat IDs.
 					"http.pattern", r.Pattern,
 					"http.status", sw.Status(),
 					"http.d", time.Since(start),
@@ -850,7 +850,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 					// This is a new file - decode base64 data
 					data, err := base64.StdEncoding.DecodeString(att.Data)
 					if err != nil {
-						s.log().Error("failed to decode attachment data", "error", err, "filename", att.Filename)
+						s.log().Error("failed to decode attachment data", "error", err)
 						continue
 					}
 
@@ -1959,7 +1959,7 @@ func (s *Server) buildChatRequest(chat *store.Chat, model string, think any, ava
 				for _, tc := range m.ToolCalls {
 					var args api.ToolCallFunctionArguments
 					if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-						s.log().Error("failed to parse tool call arguments", "error", err, "function_name", tc.Function.Name, "arguments", tc.Function.Arguments)
+						s.log().Error("failed to parse tool call arguments", "error", err)
 						continue
 					}
 

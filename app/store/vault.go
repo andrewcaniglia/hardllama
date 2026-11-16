@@ -9,16 +9,21 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/argon2"
 )
 
-// The vault encrypts chat content with a random data key. The data key is
-// stored wrapped by a key derived from the user's password, and only exists
-// unwrapped in memory while the vault is unlocked. Settings stay readable
-// because they are needed before a password can be entered, and because the
-// CLI reads this database too.
+// The vault encrypts chats, and details about them, with a random data key.
+// The data key is stored wrapped by a key derived from the user's password,
+// and only exists unwrapped in memory while the vault is unlocked. Most
+// settings stay readable because they are needed before a password can be
+// entered, and because the CLI reads this database too. The ones that say
+// something about the user, the selected model and working folder, are
+// encrypted. The number of chats, messages and attachments, and their sizes,
+// can still be seen.
 
 var (
 	ErrVaultLocked      = errors.New("chats are locked")
@@ -45,21 +50,33 @@ const (
 // column has been encrypted, so the prefix cannot collide with user content.
 var sealedPrefix = []byte("ollama-vault-1:")
 
-// sealedColumns lists every column holding chat content. Writes to these
-// columns must go through seal or sealBytes.
+// sealedColumns lists every column holding chat content or details about
+// chats, such as when they happened and which models were used. Writes to
+// these columns must go through seal, sealBytes or sealTime.
 var sealedColumns = []struct {
 	table, column string
 	blob          bool
 }{
 	{table: "chats", column: "title"},
+	{table: "chats", column: "created_at"},
 	{table: "chats", column: "browser_state"},
+	{table: "messages", column: "role"},
 	{table: "messages", column: "content"},
 	{table: "messages", column: "thinking"},
+	{table: "messages", column: "model_name"},
+	{table: "messages", column: "created_at"},
+	{table: "messages", column: "updated_at"},
+	{table: "messages", column: "thinking_time_start"},
+	{table: "messages", column: "thinking_time_end"},
 	{table: "messages", column: "tool_result"},
+	{table: "tool_calls", column: "type"},
+	{table: "tool_calls", column: "function_name"},
 	{table: "tool_calls", column: "function_arguments"},
 	{table: "tool_calls", column: "function_result"},
 	{table: "attachments", column: "filename"},
 	{table: "attachments", column: "data", blob: true},
+	{table: "settings", column: "selected_model"},
+	{table: "settings", column: "working_dir"},
 }
 
 type vaultCipher struct {
@@ -168,6 +185,63 @@ func (db *database) open(column, sealed string) (string, error) {
 	return string(plaintext), err
 }
 
+func (db *database) openNull(column string, value sql.NullString) (sql.NullString, error) {
+	if !value.Valid {
+		return value, nil
+	}
+	plaintext, err := db.open(column, value.String)
+	return sql.NullString{String: plaintext, Valid: true}, err
+}
+
+// Timestamps are stored as text in the same format the SQLite driver uses, so
+// that encrypted and unencrypted timestamps read back the same way. Reads
+// must cast timestamp columns to text, because the driver turns text it
+// can't parse as a time, such as an encrypted value, into the zero time.
+var timestampFormat = sqlite3.SQLiteTimestampFormats[0]
+
+func (db *database) sealTime(column string, t time.Time) (string, error) {
+	return db.seal(column, t.Format(timestampFormat))
+}
+
+func (db *database) sealNullTime(column string, t *time.Time) (sql.NullString, error) {
+	if t == nil {
+		return sql.NullString{}, nil
+	}
+	sealed, err := db.sealTime(column, *t)
+	return sql.NullString{String: sealed, Valid: true}, err
+}
+
+func (db *database) openTime(column, value string) (time.Time, error) {
+	plaintext, err := db.open(column, value)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parseTimestamp(plaintext), nil
+}
+
+func (db *database) openNullTime(column string, value sql.NullString) (*time.Time, error) {
+	if !value.Valid {
+		return nil, nil
+	}
+	t, err := db.openTime(column, value.String)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// parseTimestamp parses a timestamp the same way the SQLite driver does,
+// returning the zero time if it can't.
+func parseTimestamp(s string) time.Time {
+	s = strings.TrimSuffix(s, "Z")
+	for _, format := range sqlite3.SQLiteTimestampFormats {
+		if t, err := time.ParseInLocation(format, s, time.UTC); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
 func (db *database) loadVaultState() error {
 	var count int
 	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM vault`).Scan(&count); err != nil {
@@ -221,10 +295,11 @@ func (db *database) setupVault(password string) error {
 	}
 	defer tx.Rollback()
 
-	for _, col := range sealedColumns {
-		if err := sealExistingColumn(tx, v, col.table, col.column, col.blob); err != nil {
-			return fmt.Errorf("encrypt %s.%s: %w", col.table, col.column, err)
-		}
+	if _, err := sealExistingColumns(tx, v); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM users`); err != nil {
+		return fmt.Errorf("remove cached account: %w", err)
 	}
 
 	if _, err := tx.Exec(
@@ -242,38 +317,59 @@ func (db *database) setupVault(password string) error {
 		return fmt.Errorf("commit vault: %w", err)
 	}
 
-	if _, err := db.conn.Exec(`VACUUM`); err != nil {
-		return fmt.Errorf("remove plaintext: %w", err)
-	}
-	if _, err := db.conn.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-		return fmt.Errorf("remove plaintext: %w", err)
-	}
-	return nil
+	return db.removeFreedPages()
 }
 
-func sealExistingColumn(tx *sql.Tx, v *vaultCipher, table, column string, blob bool) error {
+// sealExistingColumns encrypts every value that is not encrypted yet. Values
+// that are already encrypted are left alone, so this can run again after new
+// columns are added to sealedColumns. It reports how many values it changed.
+func sealExistingColumns(tx *sql.Tx, v *vaultCipher) (int, error) {
+	total := 0
+	for _, col := range sealedColumns {
+		n, err := sealExistingColumn(tx, v, col.table, col.column, col.blob)
+		if err != nil {
+			return total, fmt.Errorf("encrypt %s.%s: %w", col.table, col.column, err)
+		}
+		total += n
+	}
+	return total, nil
+}
+
+func sealExistingColumn(tx *sql.Tx, v *vaultCipher, table, column string, blob bool) (int, error) {
 	type row struct {
 		id    int64
 		value []byte
 	}
 
-	// Table and column names come from sealedColumns, not from input.
-	rows, err := tx.Query(fmt.Sprintf(`SELECT rowid, %[1]s FROM %[2]s WHERE %[1]s IS NOT NULL AND length(%[1]s) > 0`, column, table))
+	// Table and column names come from sealedColumns, not from input. Text
+	// columns are cast so that timestamps are read as stored instead of being
+	// parsed by the driver.
+	value := column
+	if !blob {
+		value = fmt.Sprintf("CAST(%s AS TEXT)", column)
+	}
+	query := fmt.Sprintf(
+		`SELECT rowid, %[3]s FROM %[2]s WHERE %[1]s IS NOT NULL AND length(%[1]s) > 0 AND CAST(substr(%[1]s, 1, %[4]d) AS TEXT) != ?`,
+		column, table, value, len(sealedPrefix),
+	)
+	rows, err := tx.Query(query, string(sealedPrefix))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var values []row
 	for rows.Next() {
 		var r row
 		if err := rows.Scan(&r.id, &r.value); err != nil {
 			rows.Close()
-			return err
+			return 0, err
 		}
-		values = append(values, r)
+		if !bytes.HasPrefix(r.value, sealedPrefix) {
+			values = append(values, r)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return err
+		return 0, err
 	}
 	rows.Close()
 
@@ -281,15 +377,27 @@ func sealExistingColumn(tx *sql.Tx, v *vaultCipher, table, column string, blob b
 	for _, r := range values {
 		sealed, err := sealValue(v, column, r.value)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		var value any = string(sealed)
 		if blob {
 			value = sealed
 		}
 		if _, err := tx.Exec(update, value, r.id); err != nil {
-			return err
+			return 0, err
 		}
+	}
+	return len(values), nil
+}
+
+// removeFreedPages rewrites the database so that values which were replaced
+// or deleted no longer exist anywhere in the file or its WAL.
+func (db *database) removeFreedPages() error {
+	if _, err := db.conn.Exec(`VACUUM`); err != nil {
+		return fmt.Errorf("remove plaintext: %w", err)
+	}
+	if _, err := db.conn.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return fmt.Errorf("remove plaintext: %w", err)
 	}
 	return nil
 }
@@ -319,8 +427,43 @@ func (db *database) unlockVault(password string) error {
 	if err != nil {
 		return err
 	}
+	if err := db.sealLeftovers(v); err != nil {
+		return err
+	}
 	db.vault.Store(v)
 	return nil
+}
+
+// sealLeftovers encrypts anything still stored in plain text, such as chat
+// details from versions that only encrypted chat content, and removes the
+// cached account. Unlocking fails if this fails, so plain text never stays
+// behind silently.
+func (db *database) sealLeftovers(v *vaultCipher) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	changed, err := sealExistingColumns(tx, v)
+	if err != nil {
+		return err
+	}
+	result, err := tx.Exec(`DELETE FROM users`)
+	if err != nil {
+		return fmt.Errorf("remove cached account: %w", err)
+	}
+	removed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	if changed == 0 && removed == 0 {
+		return nil
+	}
+	return db.removeFreedPages()
 }
 
 // VaultStatus reports whether chat encryption is enabled and currently locked.

@@ -108,15 +108,16 @@ func main() {
 
 	logrotate.Rotate(appLogPath)
 	if _, err := os.Stat(filepath.Dir(appLogPath)); errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(appLogPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(appLogPath), 0o700); err != nil {
 			slog.Error(fmt.Sprintf("failed to create server log dir %v", err))
 			return
 		}
 	}
+	makeLogsPrivate(appLogPath)
 
 	var logFile io.Writer
 	var err error
-	logFile, err = os.OpenFile(appLogPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o755)
+	logFile, err = os.OpenFile(appLogPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to create server log %v", err))
 		return
