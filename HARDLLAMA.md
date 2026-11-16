@@ -10,6 +10,8 @@ The `ollama` server, models and CLI are unchanged. Only the desktop app is diffe
 - **Chats are encrypted on disk.** Each value is encrypted before it's saved, so the chat text in the database stays scrambled even while the app is open.
 - **Private chats.** Click the lock button before your first message to keep a chat in memory only. Nothing is written to disk, and it's gone when the app quits or locks.
 - **Deleted chats are overwritten** rather than just unlinked.
+- **It locks when you leave.** Switch to another app or close the window, and it locks after a delay you choose. What you were typing, and a reply still being written, are kept encrypted and come back when you unlock. See [Locking](#locking).
+- **Run models on another computer.** Pair with another HardLlama, such as one with a faster GPU, while your chats stay on this one. See [Running models on another computer](#running-models-on-another-computer).
 - **Updates are off.** The app doesn't check for, download or install updates. See [Updating](#updating).
 - **Nothing leaves your computer by accident.** Ollama's paid cloud models, web search and ollama.com sign-in are gone, and the app doesn't contact ollama.com when it starts. Only downloading models, and checking whether a model has an update, talk to ollama.com.
 - **Custom instructions.** Write instructions in **Settings** that are sent with every message, after the model's own system prompt. For example, models often insist it's still the year their training ended; telling them time has passed, and to take your word for recent events, helps.
@@ -64,7 +66,7 @@ None of this has been independently audited.
 
 ## Running models on another computer
 
-HardLlama can run models on another computer you own, such as one with a faster GPU, while your chats stay saved and encrypted on this one. The other computer must be running HardLlama too. It only sees each prompt while it works on it, and never sees your saved chats.
+HardLlama can run models on another computer you own, such as one with a faster GPU, while your chats stay saved and encrypted on this one. The other computer must be running HardLlama too. Each time you send a message, it's sent the chat so far, since the model needs it to reply, but it doesn't save it.
 
 ### Setting it up
 
@@ -92,6 +94,7 @@ The sharing computer listens on port 11443. On the same network, use its local a
 - Sharing keeps working while the sharing computer is locked, so it can sit at home and serve models. Turning sharing on or off, pairing and removing devices all need it unlocked.
 - Pairing details are encrypted with your chats. While this computer is locked, nothing is sent to the other one.
 - The model list, and downloads started from a chat, are the other computer's.
+- Your custom instructions and Context length setting are this computer's, and are sent with each message. The other computer's own settings only apply to chats typed on it.
 - The sharing computer keeps its key in `share-identity.pem` in its HardLlama folder, readable only by you. If it's deleted, paired devices refuse to connect until you pair them again.
 - **Expose Ollama to the network** is gone from Settings and ignored if it was set. It opened the server to your whole network with no password.
 
@@ -205,5 +208,7 @@ go test ./app/...
 ### Schema version trap
 
 This build uses database schema version 20 for the `vault` table. If Ollama ships its own version 20, databases already at 20 would skip their migration. Don't just renumber: resolve it so that both changes are applied to existing HardLlama databases.
+
+HardLlama's own tables (`hardllama_settings`, `share_devices` and `chat_context`) aren't in the migrations, so they can't collide with upstream's versions. `createHardLlamaTables` in `app/store/database.go` creates them on every start, and adds new columns to existing databases.
 
 Any new upstream column that stores chat content or details about chats must also be added to `sealedColumns` in `app/store/vault.go`, and its writes must go through `seal` (or `sealTime` for timestamps), or it will be saved unencrypted. Reads of timestamp columns must `CAST` them to text, or the SQLite driver turns encrypted values into the zero time. `assertAllSealed` in `vault_details_test.go` checks every listed column.
