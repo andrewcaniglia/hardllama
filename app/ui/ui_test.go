@@ -1516,4 +1516,29 @@ func TestVaultRoutes(t *testing.T) {
 	if len(got.Messages) != 1 || got.Messages[0].Content != "keep me" {
 		t.Fatalf("chat changed while locked: %+v", got.Messages)
 	}
+
+	const newPassword = "a different long password"
+	for _, body := range []string{
+		`{"current":"wrong password!","password":"` + newPassword + `"}`,
+		`{"current":"` + password + `","password":"11-char-pwd"}`,
+	} {
+		if rec := request(http.MethodPost, "/api/v1/vault/password", body); rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: expected bad request, got %d %s", body, rec.Code, rec.Body)
+		}
+	}
+	if rec := request(http.MethodPost, "/api/v1/vault/password", `{"current":"`+password+`","password":"`+newPassword+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("change password failed: %d %s", rec.Code, rec.Body)
+	}
+	status(t, `{"enabled":true,"locked":false}`)
+
+	request(http.MethodPost, "/api/v1/vault/lock", "")
+	if rec := request(http.MethodPost, "/api/v1/vault/unlock", `{"password":"`+password+`"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("old password still unlocks: %d", rec.Code)
+	}
+	if rec := request(http.MethodPost, "/api/v1/vault/unlock", `{"password":"`+newPassword+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("new password doesn't unlock: %d %s", rec.Code, rec.Body)
+	}
+	if got, err = s.Store.Chat("existing"); err != nil || got.Messages[0].Content != "keep me" {
+		t.Fatalf("chat not readable after password change: %v %+v", err, got)
+	}
 }

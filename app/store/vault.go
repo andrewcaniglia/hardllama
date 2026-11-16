@@ -31,10 +31,11 @@ var (
 	ErrVaultWeakPass    = fmt.Errorf("password must be at least %d characters", minVaultPasswordLength)
 	ErrVaultEnabled     = errors.New("chat encryption is already enabled")
 	ErrVaultDecryptFail = errors.New("failed to decrypt chat data")
+	ErrVaultNotEnabled  = errors.New("chat encryption is not enabled")
 )
 
 const (
-	minVaultPasswordLength = 8
+	minVaultPasswordLength = 12
 	vaultIdleTimeout       = 15 * time.Minute
 
 	vaultKeySize     = 32
@@ -170,7 +171,11 @@ func (db *database) openBytes(column string, data []byte) ([]byte, error) {
 	if !bytes.HasPrefix(data, sealedPrefix) {
 		return data, nil
 	}
+	return openValue(v, column, data)
+}
 
+// openValue decrypts a value that starts with sealedPrefix.
+func openValue(v *vaultCipher, column string, data []byte) ([]byte, error) {
 	encoded := data[len(sealedPrefix):]
 	ciphertext := make([]byte, base64.StdEncoding.DecodedLen(len(encoded)))
 	n, err := base64.StdEncoding.Decode(ciphertext, encoded)
@@ -265,27 +270,10 @@ func (db *database) setupVault(password string) error {
 		return ErrVaultEnabled
 	}
 
-	key := make([]byte, vaultKeySize)
-	salt := make([]byte, vaultSaltSize)
-	if _, err := rand.Read(key); err != nil {
-		return err
-	}
-	if _, err := rand.Read(salt); err != nil {
-		return err
-	}
-	v, err := newVaultCipher(key)
+	v, salt, wrapped, err := newVaultKey(password)
 	if err != nil {
 		return err
 	}
-	wrapping, err := newVaultCipher(deriveVaultKey(password, salt, vaultArgonTime, vaultArgonMemory, vaultArgonLanes))
-	if err != nil {
-		return err
-	}
-	wrapped, err := wrapping.encrypt(vaultKeyContext, key)
-	if err != nil {
-		return err
-	}
-	clear(key)
 
 	// Transactions take the write lock when they begin, so no other write can
 	// land between encrypting the existing rows and enabling the vault.
@@ -402,7 +390,34 @@ func (db *database) removeFreedPages() error {
 	return nil
 }
 
-func (db *database) unlockVault(password string) error {
+// newVaultKey makes a random data key and wraps it with password.
+func newVaultKey(password string) (v *vaultCipher, salt, wrapped []byte, err error) {
+	key := make([]byte, vaultKeySize)
+	defer clear(key)
+	salt = make([]byte, vaultSaltSize)
+	if _, err := rand.Read(key); err != nil {
+		return nil, nil, nil, err
+	}
+	if _, err := rand.Read(salt); err != nil {
+		return nil, nil, nil, err
+	}
+	v, err = newVaultCipher(key)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	wrapping, err := newVaultCipher(deriveVaultKey(password, salt, vaultArgonTime, vaultArgonMemory, vaultArgonLanes))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	wrapped, err = wrapping.encrypt(vaultKeyContext, key)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return v, salt, wrapped, nil
+}
+
+// unwrapVaultKey returns the data key if password is correct.
+func (db *database) unwrapVaultKey(password string) (*vaultCipher, error) {
 	var salt, wrapped []byte
 	var time, memory uint32
 	var lanes uint8
@@ -410,20 +425,23 @@ func (db *database) unlockVault(password string) error {
 		`SELECT salt, argon_time, argon_memory, argon_lanes, wrapped_key FROM vault WHERE id = 1`,
 	).Scan(&salt, &time, &memory, &lanes, &wrapped)
 	if err != nil {
-		return fmt.Errorf("read vault: %w", err)
+		return nil, fmt.Errorf("read vault: %w", err)
 	}
 
 	wrapping, err := newVaultCipher(deriveVaultKey(password, salt, time, memory, lanes))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	key, err := wrapping.decrypt(vaultKeyContext, wrapped)
 	if err != nil {
-		return ErrVaultPassword
+		return nil, ErrVaultPassword
 	}
 	defer clear(key)
+	return newVaultCipher(key)
+}
 
-	v, err := newVaultCipher(key)
+func (db *database) unlockVault(password string) error {
+	v, err := db.unwrapVaultKey(password)
 	if err != nil {
 		return err
 	}
@@ -431,6 +449,115 @@ func (db *database) unlockVault(password string) error {
 		return err
 	}
 	db.vault.Store(v)
+	return nil
+}
+
+// changeVaultPassword replaces the password and the data key, and
+// re-encrypts everything with the new key. Replacing the key means an old
+// copy of the database and the old password can't decrypt anything written
+// afterwards. If anything fails, nothing changes.
+func (db *database) changeVaultPassword(current, next string) error {
+	if !db.vaultEnabled.Load() {
+		return ErrVaultNotEnabled
+	}
+	if len(next) < minVaultPasswordLength {
+		return ErrVaultWeakPass
+	}
+	old, err := db.unwrapVaultKey(current)
+	if err != nil {
+		return err
+	}
+	v, salt, wrapped, err := newVaultKey(next)
+	if err != nil {
+		return err
+	}
+
+	// Every write seals inside a transaction, and transactions take the write
+	// lock when they begin. So while this one is open no other write can seal
+	// with either key, and writes waiting for the lock seal with the new key.
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, col := range sealedColumns {
+		if err := resealColumn(tx, old, v, col.table, col.column, col.blob); err != nil {
+			return fmt.Errorf("re-encrypt %s.%s: %w", col.table, col.column, err)
+		}
+	}
+	if _, err := tx.Exec(
+		`UPDATE vault SET salt = ?, argon_time = ?, argon_memory = ?, argon_lanes = ?, wrapped_key = ? WHERE id = 1`,
+		salt, vaultArgonTime, vaultArgonMemory, vaultArgonLanes, wrapped,
+	); err != nil {
+		return fmt.Errorf("save vault: %w", err)
+	}
+
+	previous := db.vault.Load()
+	db.vault.Store(v)
+	if err := tx.Commit(); err != nil {
+		db.vault.Store(previous)
+		return fmt.Errorf("commit vault: %w", err)
+	}
+	return db.removeFreedPages()
+}
+
+// resealColumn decrypts every value in a column with old and encrypts it
+// with v. Values that aren't encrypted yet are encrypted with v.
+func resealColumn(tx *sql.Tx, old, v *vaultCipher, table, column string, blob bool) error {
+	type row struct {
+		id    int64
+		value []byte
+	}
+
+	// Table and column names come from sealedColumns, not from input.
+	value := column
+	if !blob {
+		value = fmt.Sprintf("CAST(%s AS TEXT)", column)
+	}
+	rows, err := tx.Query(fmt.Sprintf(
+		`SELECT rowid, %[3]s FROM %[2]s WHERE %[1]s IS NOT NULL AND length(%[1]s) > 0`,
+		column, table, value,
+	))
+	if err != nil {
+		return err
+	}
+	var values []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.value); err != nil {
+			rows.Close()
+			return err
+		}
+		values = append(values, r)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	update := fmt.Sprintf(`UPDATE %s SET %s = ? WHERE rowid = ?`, table, column)
+	for _, r := range values {
+		plaintext := r.value
+		if bytes.HasPrefix(r.value, sealedPrefix) {
+			if plaintext, err = openValue(old, column, r.value); err != nil {
+				return err
+			}
+		}
+		sealed, err := sealValue(v, column, plaintext)
+		clear(plaintext)
+		if err != nil {
+			return err
+		}
+		var value any = string(sealed)
+		if blob {
+			value = sealed
+		}
+		if _, err := tx.Exec(update, value, r.id); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -496,6 +623,18 @@ func (s *Store) UnlockVault(password string) error {
 		return nil
 	}
 	if err := s.db.unlockVault(password); err != nil {
+		return err
+	}
+	s.startVaultTimer()
+	return nil
+}
+
+// ChangeVaultPassword replaces the password. The vault stays unlocked.
+func (s *Store) ChangeVaultPassword(current, next string) error {
+	if err := s.ensureDB(); err != nil {
+		return err
+	}
+	if err := s.db.changeVaultPassword(current, next); err != nil {
 		return err
 	}
 	s.startVaultTimer()

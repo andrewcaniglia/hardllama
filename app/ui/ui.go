@@ -294,6 +294,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/vault/setup", handle(s.vaultSetup))
 	mux.Handle("POST /api/v1/vault/unlock", handle(s.vaultUnlock))
 	mux.Handle("POST /api/v1/vault/lock", handle(s.vaultLock))
+	mux.Handle("POST /api/v1/vault/password", handle(s.vaultChangePassword))
 
 	mux.Handle("GET /api/v1/inference-compute", handle(s.getInferenceCompute))
 	mux.Handle("POST /api/v1/model/upstream", handle(s.modelUpstream))
@@ -555,9 +556,25 @@ func (s *Server) vaultPassword(w http.ResponseWriter, r *http.Request, apply fun
 		return fmt.Errorf("invalid request body: %w", err)
 	}
 
-	err := apply(req.Password)
+	return s.vaultResult(w, r, apply(req.Password))
+}
+
+func (s *Server) vaultChangePassword(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		Current  string `json:"current"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return fmt.Errorf("invalid request body: %w", err)
+	}
+	return s.vaultResult(w, r, s.Store.ChangeVaultPassword(req.Current, req.Password))
+}
+
+// vaultResult responds to a vault request, reporting password mistakes as
+// bad requests so the UI can show them.
+func (s *Server) vaultResult(w http.ResponseWriter, r *http.Request, err error) error {
 	switch {
-	case errors.Is(err, store.ErrVaultPassword), errors.Is(err, store.ErrVaultWeakPass):
+	case errors.Is(err, store.ErrVaultPassword), errors.Is(err, store.ErrVaultWeakPass), errors.Is(err, store.ErrVaultNotEnabled):
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		return json.NewEncoder(w).Encode(responses.Error{Error: err.Error()})

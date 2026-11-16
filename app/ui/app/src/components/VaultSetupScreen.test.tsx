@@ -44,6 +44,17 @@ describe("VaultSetupScreen", () => {
     mocks.setupVault.mockReset();
   });
 
+  it("refuses passwords shorter than 12 characters", async () => {
+    const renderer = render(new QueryClient());
+
+    await submit(renderer, "11-char-pwd", "11-char-pwd");
+
+    expect(mocks.setupVault).not.toHaveBeenCalled();
+    expect(renderer.root.findByProps({ role: "alert" }).children).toEqual([
+      "Password must be at least 12 characters",
+    ]);
+  });
+
   it("refuses passwords that don't match", async () => {
     const renderer = render(new QueryClient());
 

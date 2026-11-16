@@ -288,9 +288,7 @@ export async function getClaudeDesktopAvailableModels(
     const seen = new Set<string>();
     return [...localModels, ...cloudModels]
       .filter((model: ModelResponse) => {
-        const base = model.name
-          .replace(/:latest$/, "")
-          .replace(/:cloud$/, "");
+        const base = model.name.replace(/:latest$/, "").replace(/:cloud$/, "");
         if (!base || seen.has(base)) return false;
 
         const families = model.details?.families;
@@ -368,6 +366,24 @@ export async function getVaultStatus(): Promise<VaultStatus> {
 export const setupVault = (password: string) => postVault("setup", password);
 export const unlockVault = (password: string) => postVault("unlock", password);
 export const lockVault = () => postVault("lock");
+
+export async function changeVaultPassword(
+  current: string,
+  password: string,
+): Promise<VaultStatus> {
+  const response = await fetch(`${API_BASE}/api/v1/vault/password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current, password }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Failed to change password: ${response.status}`,
+    );
+  }
+  return data;
+}
 
 export type ChatEventUnion = ChatEvent | DownloadEvent | ErrorEvent;
 

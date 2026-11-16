@@ -4,8 +4,7 @@ import { LockClosedIcon } from "@heroicons/react/24/outline";
 import { setupVault } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
-const MIN_PASSWORD_LENGTH = 8;
+import { MIN_VAULT_PASSWORD_LENGTH, shortPasswordMessage } from "@/lib/vault";
 
 export function VaultSetupScreen() {
   const queryClient = useQueryClient();
@@ -16,6 +15,10 @@ export function VaultSetupScreen() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (password.length < MIN_VAULT_PASSWORD_LENGTH) {
+      setError(shortPasswordMessage);
+      return;
+    }
     if (password !== confirmation) {
       setError("Passwords don't match");
       return;
@@ -53,7 +56,7 @@ export function VaultSetupScreen() {
         <Input
           type="password"
           autoFocus
-          placeholder="Password"
+          placeholder={`Password (at least ${MIN_VAULT_PASSWORD_LENGTH} characters)`}
           aria-label="Password"
           value={password}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -77,7 +80,7 @@ export function VaultSetupScreen() {
         <Button
           type="submit"
           className="w-full"
-          disabled={password.length < MIN_PASSWORD_LENGTH || isSaving}
+          disabled={password.length < MIN_VAULT_PASSWORD_LENGTH || isSaving}
         >
           {isSaving ? "Encrypting..." : "Encrypt chats"}
         </Button>

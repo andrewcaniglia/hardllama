@@ -38,7 +38,9 @@ Encryption uses AES-256-GCM with a random key. That key is stored wrapped by a k
 
 The app locks when you quit, lock your screen, your Mac sleeps, after 15 minutes idle, or when you click **Lock now** in Settings. Locking throws away the key and erases private chats. If it locks during a reply, the rest of that reply isn't saved.
 
-**There is no password reset.** If you forget your password, your chats are gone for good. There's also no way to change it yet.
+**There is no password reset.** If you forget your password, your chats are gone for good.
+
+To change your password, open **Settings** and click **Change password**. New passwords must be at least 12 characters. Changing it also replaces the encryption key and re-encrypts every chat, so an old copy of the database and your old password can't unlock anything you write afterwards.
 
 ## What this doesn't protect against
 
@@ -49,7 +51,7 @@ The app locks when you quit, lock your screen, your Mac sleeps, after 15 minutes
 - Models, and any system prompts saved in them, in `~/.ollama/models`. That includes sessions saved with `/save` in the CLI. The server reads these directly, so HardLlama can't encrypt them.
 - `~/.ollama/id_ed25519`, the key that identifies you to ollama.com. Only your account can read it.
 - Other programs on your Mac using the server on port 11439. It doesn't require a password, but it doesn't store your chats either.
-- A weak password. Anyone with a copy of the database can keep guessing, so use a long one.
+- A weak password. Anyone with a copy of the database can keep guessing, so use a long one. Passwords set before the 12-character minimum keep working; change yours if it's shorter.
 
 None of this has been independently audited.
 

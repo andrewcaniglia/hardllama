@@ -282,8 +282,10 @@ func TestVaultRejectsTampering(t *testing.T) {
 
 func TestVaultSetupRules(t *testing.T) {
 	s := privateTestStore(t)
-	if err := s.SetupVault("short"); !errors.Is(err, ErrVaultWeakPass) {
-		t.Fatalf("expected weak password error, got %v", err)
+	for _, weak := range []string{"short", "11-char-pwd"} {
+		if err := s.SetupVault(weak); !errors.Is(err, ErrVaultWeakPass) {
+			t.Fatalf("%q: expected weak password error, got %v", weak, err)
+		}
 	}
 	if err := s.SetupVault(vaultPassword); err != nil {
 		t.Fatal(err)
