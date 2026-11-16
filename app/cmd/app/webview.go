@@ -229,6 +229,9 @@ func (w *Webview) Run(path string) unsafe.Pointer {
 
 		wv.Bind("close", func() {
 			hideWindow(wv.Window())
+			// The app keeps running in the menu bar, so lock chats with the
+			// window.
+			leftApp()
 		})
 
 		wv.Bind("setOnboardingWindow", func(enabled bool) {
@@ -514,6 +517,20 @@ func (w *Webview) Terminate() {
 
 func (w *Webview) OnboardingActive() bool {
 	return w.onboarding.Load()
+}
+
+// showLockScreen shows the lock screen right away after chats lock, rather
+// than at the window's next check, so chats don't stay on screen.
+func (w *Webview) showLockScreen() {
+	w.mutex.Lock()
+	v := w.webview
+	w.mutex.Unlock()
+	if v == nil {
+		return
+	}
+	v.Dispatch(func() {
+		v.Eval("window.__hardllamaLocked && window.__hardllamaLocked()")
+	})
 }
 
 func (w *Webview) IsRunning() bool {

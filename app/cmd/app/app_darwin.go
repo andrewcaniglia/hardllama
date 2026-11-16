@@ -143,6 +143,7 @@ func IsOnboardingActive() C.bool {
 }
 
 func openUI(path string) {
+	returnedToApp()
 	if wv.IsRunning() && wv.webview != nil {
 		showWindow(wv.webview.Window())
 		return
@@ -2130,11 +2131,25 @@ func init() {
 	}
 }
 
+//export LeftApp
+func LeftApp() {
+	leftApp()
+}
+
+//export ReturnedToApp
+func ReturnedToApp() {
+	returnedToApp()
+}
+
 //export LockVault
 func LockVault() {
-	if appStore != nil {
-		go appStore.LockVault()
+	if appStore == nil {
+		return
 	}
+	go func() {
+		appStore.LockVault()
+		wv.showLockScreen()
+	}()
 }
 
 // checkAndHandleExistingInstance is not needed on non-Windows platforms

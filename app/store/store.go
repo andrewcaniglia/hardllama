@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -203,6 +204,7 @@ type Store struct {
 	db   *database
 
 	private privateChats
+	drafts  drafts
 
 	vaultTimerMu sync.Mutex
 	vaultTimer   *time.Timer
@@ -671,6 +673,43 @@ func (s *Store) SetModelServer(p *share.Pairing) error {
 		value = string(data)
 	}
 	return s.db.setModelServer(value)
+}
+
+// LockDelays are the choices for how long chats stay unlocked after the user
+// leaves HardLlama.
+var LockDelays = []time.Duration{0, 5 * time.Second, 15 * time.Second, 30 * time.Second, time.Minute}
+
+// ErrBadLockDelay is returned for a lock delay that isn't one of LockDelays.
+var ErrBadLockDelay = errors.New("choose instantly, 5 seconds, 15 seconds, 30 seconds or 1 minute")
+
+// LockDelay is how long chats stay unlocked after the user switches to
+// another app or closes the window.
+func (s *Store) LockDelay() (time.Duration, error) {
+	if err := s.ensureDB(); err != nil {
+		return LockDelays[0], err
+	}
+	seconds, err := s.db.getLockDelay()
+	if err != nil {
+		return LockDelays[0], err
+	}
+	d := time.Duration(seconds) * time.Second
+	if !slices.Contains(LockDelays, d) {
+		// Never wait longer than intended because of a bad value. The
+		// shortest is instantly.
+		return LockDelays[0], nil
+	}
+	return d, nil
+}
+
+// SetLockDelay changes LockDelay. It fails while chats are locked.
+func (s *Store) SetLockDelay(d time.Duration) error {
+	if !slices.Contains(LockDelays, d) {
+		return ErrBadLockDelay
+	}
+	if err := s.chatDB(); err != nil {
+		return err
+	}
+	return s.db.setLockDelay(int(d / time.Second))
 }
 
 // ShareEnabled reports whether this computer shares its models with paired

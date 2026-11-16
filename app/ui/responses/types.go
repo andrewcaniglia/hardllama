@@ -183,3 +183,13 @@ type Page struct {
 	Links     map[int]string `json:"links,omitempty" ts_type:"Record<number, string>"`
 	FetchedAt time.Time      `json:"fetched_at"`
 }
+
+// Draft is what the user was typing in a chat when chats locked.
+type Draft struct {
+	Content string `json:"content"`
+}
+
+// LockDelay is how long chats stay unlocked after the user leaves HardLlama.
+type LockDelay struct {
+	Seconds int `json:"seconds"`
+}

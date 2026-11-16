@@ -681,6 +681,7 @@ static NSImage *ollamaApplicationIcon(void) {
 }
 
 - (void)applicationDidBecomeActive:(NSNotification *)notification {
+    ReturnedToApp();
     NSRunningApplication *currentApp = [NSRunningApplication currentApplication];
     if (currentApp.activationPolicy == NSApplicationActivationPolicyAccessory) {
         for (NSWindow *window in [NSApp windows]) {
@@ -693,6 +694,12 @@ static NSImage *ollamaApplicationIcon(void) {
         [NSApp hide:nil];
         return;
     }
+}
+
+// Lock encrypted chats shortly after the user switches to another app,
+// unless they come back first.
+- (void)applicationDidResignActive:(NSNotification *)notification {
+    LeftApp();
 }
 
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)hasVisibleWindows {
@@ -1542,7 +1549,17 @@ didCompleteWithError:(NSError *)error {
 - (BOOL)windowShouldClose:(id)sender {
     // Keep the webview alive without restoring the window on app activation.
     [sender orderOut:nil];
+    // The app keeps running in the menu bar, so lock chats with the window.
+    LeftApp();
     return NO;
+}
+
+- (void)windowDidMiniaturize:(NSNotification *)notification {
+    LeftApp();
+}
+
+- (void)windowDidDeminiaturize:(NSNotification *)notification {
+    ReturnedToApp();
 }
 
 - (void)refreshStatusItem {

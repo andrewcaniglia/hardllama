@@ -1546,3 +1546,94 @@ func TestVaultRoutes(t *testing.T) {
 		t.Fatalf("chat not readable after password change: %v %+v", err, got)
 	}
 }
+
+func TestDraftRoutes(t *testing.T) {
+	const password = "correct horse battery"
+	s := &Server{
+		Store: &store.Store{DBPath: filepath.Join(t.TempDir(), "db.sqlite")},
+		Dev:   true,
+	}
+	t.Cleanup(func() { s.Store.Close() })
+	handler := s.Handler()
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := request(http.MethodPost, "/api/v1/vault/setup", `{"password":"`+password+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("setup failed: %d %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodPost, "/api/v1/vault/activity", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("activity: %d %s", rec.Code, rec.Body)
+	}
+	request(http.MethodPost, "/api/v1/vault/lock", "")
+
+	// The window saves the draft once it sees chats have locked.
+	if rec := request(http.MethodPut, "/api/v1/drafts/c1", `{"content":"half a prompt"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("save while locked: %d %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodPost, "/api/v1/drafts/c1/take", ""); rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), "half") {
+		t.Fatalf("take while locked: %d %s", rec.Code, rec.Body)
+	}
+
+	request(http.MethodPost, "/api/v1/vault/unlock", `{"password":"`+password+`"}`)
+	if rec := request(http.MethodPost, "/api/v1/drafts/c1/take", ""); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"content":"half a prompt"}` {
+		t.Fatalf("take: %d %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodPost, "/api/v1/drafts/c1/take", ""); strings.TrimSpace(rec.Body.String()) != `{"content":""}` {
+		t.Fatalf("draft handed back twice: %s", rec.Body)
+	}
+}
+
+func TestReplyCutOffByLocking(t *testing.T) {
+	var s *Server
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/show":
+			json.NewEncoder(w).Encode(api.ShowResponse{})
+		case "/api/chat":
+			enc := json.NewEncoder(w)
+			enc.Encode(api.ChatResponse{Message: api.Message{Role: "assistant", Content: "first part"}})
+			w.(http.Flusher).Flush()
+			// The user leaves and chats lock mid-reply.
+			s.Store.LockVault()
+			enc.Encode(api.ChatResponse{Message: api.Message{Role: "assistant", Content: " second part"}})
+			enc.Encode(api.ChatResponse{Done: true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+	t.Setenv("OLLAMA_HOST", ollama.URL)
+
+	s = &Server{Store: &store.Store{DBPath: filepath.Join(t.TempDir(), "db.sqlite")}}
+	t.Cleanup(func() { s.Store.Close() })
+	if err := s.Store.SetupVault(testPassword); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(responses.ChatRequest{Model: "test", Prompt: "hi"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/chat/new", bytes.NewReader(body))
+	req.SetPathValue("id", "new")
+	rec := httptest.NewRecorder()
+	s.chat(rec, req)
+
+	var got *responses.ErrorEvent
+	dec := json.NewDecoder(rec.Body)
+	for {
+		var raw map[string]any
+		if err := dec.Decode(&raw); err != nil {
+			break
+		}
+		if raw["eventName"] == "error" {
+			data, _ := json.Marshal(raw)
+			got = &responses.ErrorEvent{}
+			json.Unmarshal(data, got)
+		}
+	}
+	if got == nil || got.Code != "vault_locked" || !strings.Contains(got.Error, "locked while this reply was being written") {
+		t.Fatalf("error event = %+v", got)
+	}
+}

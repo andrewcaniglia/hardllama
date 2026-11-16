@@ -100,6 +100,7 @@ func (*appCallbacks) UIShow() {
 }
 
 func openUI(path string) {
+	returnedToApp()
 	if wv.IsRunning() && wv.webview != nil {
 		showWindow(wv.webview.Window())
 		return

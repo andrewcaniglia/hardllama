@@ -736,3 +736,41 @@ export const removeShareDevice = (id: string) =>
   jsonRequest<ShareStatus>(`/api/v1/share/devices/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+
+// Drafts: what the user was typing when chats locked. The app keeps them
+// encrypted in memory until the next unlock.
+
+export async function saveDraft(chatId: string, content: string) {
+  const response = await fetch(
+    `${API_BASE}/api/v1/drafts/${encodeURIComponent(chatId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+      // The window may be switching to the lock screen.
+      keepalive: content.length < 60_000,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to save draft: ${response.status}`);
+  }
+}
+
+export const takeDraft = (chatId: string) =>
+  jsonRequest<{ content: string }>(
+    `/api/v1/drafts/${encodeURIComponent(chatId)}/take`,
+    { method: "POST" },
+  );
+
+export async function reportActivity() {
+  await fetch(`${API_BASE}/api/v1/vault/activity`, { method: "POST" });
+}
+
+export const getLockDelay = () =>
+  jsonRequest<{ seconds: number }>("/api/v1/vault/lock-delay");
+
+export const setLockDelay = (seconds: number) =>
+  jsonRequest<{ seconds: number }>("/api/v1/vault/lock-delay", {
+    method: "PUT",
+    body: JSON.stringify({ seconds }),
+  });

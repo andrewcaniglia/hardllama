@@ -328,6 +328,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/vault/unlock", handle(s.vaultUnlock))
 	mux.Handle("POST /api/v1/vault/lock", handle(s.vaultLock))
 	mux.Handle("POST /api/v1/vault/password", handle(s.vaultChangePassword))
+	mux.Handle("POST /api/v1/vault/activity", handle(s.vaultActivity))
+	mux.Handle("GET /api/v1/vault/lock-delay", handle(s.getLockDelay))
+	mux.Handle("PUT /api/v1/vault/lock-delay", handle(s.setLockDelay))
+	mux.Handle("PUT /api/v1/drafts/{id}", handle(s.saveDraft))
+	mux.Handle("POST /api/v1/drafts/{id}/take", handle(s.takeDraft))
 	mux.Handle("GET /api/v1/model-server", handle(s.getModelServer))
 	mux.Handle("POST /api/v1/model-server/pair", handle(s.pairModelServer))
 	mux.Handle("DELETE /api/v1/model-server", handle(s.unpairModelServer))
@@ -668,6 +673,63 @@ func (s *Server) vaultLock(w http.ResponseWriter, r *http.Request) error {
 	return s.vaultStatus(w, r)
 }
 
+// vaultActivity tells the idle lock the user is still here.
+func (s *Server) vaultActivity(w http.ResponseWriter, r *http.Request) error {
+	s.Store.TouchVault()
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (s *Server) getLockDelay(w http.ResponseWriter, r *http.Request) error {
+	d, err := s.Store.LockDelay()
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, responses.LockDelay{Seconds: int(d / time.Second)})
+}
+
+// setLockDelay changes how long chats stay unlocked after the user leaves
+// HardLlama.
+func (s *Server) setLockDelay(w http.ResponseWriter, r *http.Request) error {
+	var req responses.LockDelay
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return fmt.Errorf("invalid request body: %w", err)
+	}
+	if err := s.Store.SetLockDelay(time.Duration(req.Seconds) * time.Second); err != nil {
+		if errors.Is(err, store.ErrBadLockDelay) {
+			return writeError(w, http.StatusBadRequest, err)
+		}
+		return storeError(w, err)
+	}
+	return s.getLockDelay(w, r)
+}
+
+// saveDraft keeps what the user was typing when chats locked. It works while
+// locked.
+func (s *Server) saveDraft(w http.ResponseWriter, r *http.Request) error {
+	var req responses.Draft
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&req); err != nil {
+		return fmt.Errorf("invalid request body: %w", err)
+	}
+	if err := s.Store.SaveDraft(r.PathValue("id"), req.Content); err != nil {
+		if errors.Is(err, store.ErrDraftTooLarge) {
+			return writeError(w, http.StatusRequestEntityTooLarge, err)
+		}
+		return storeError(w, err)
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// takeDraft returns and forgets a chat's draft.
+func (s *Server) takeDraft(w http.ResponseWriter, r *http.Request) error {
+	content, err := s.Store.TakeDraft(r.PathValue("id"))
+	if err != nil {
+		return storeError(w, err)
+	}
+	return writeJSON(w, http.StatusOK, responses.Draft{Content: content})
+}
+
 func (s *Server) listChats(w http.ResponseWriter, r *http.Request) error {
 	chats, _ := s.Store.Chats()
 
@@ -766,6 +828,14 @@ func isNetworkError(errStr string) bool {
 var ErrNetworkOffline = errors.New("network is offline")
 
 func (s *Server) getError(err error) responses.ErrorEvent {
+	if errors.Is(err, store.ErrVaultLocked) {
+		return responses.ErrorEvent{
+			EventName: "error",
+			Error:     "HardLlama locked while this reply was being written, so the rest of it wasn't saved. Send another message to continue.",
+			Code:      "vault_locked",
+		}
+	}
+
 	var sErr api.AuthorizationError
 	if errors.As(err, &sErr) && sErr.StatusCode == http.StatusUnauthorized {
 		return responses.ErrorEvent{

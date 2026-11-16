@@ -1655,7 +1655,8 @@ func (db *database) createHardLlamaTables() error {
 		CREATE TABLE IF NOT EXISTS hardllama_settings (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			model_server TEXT NOT NULL DEFAULT '',
-			share_enabled BOOLEAN NOT NULL DEFAULT 0
+			share_enabled BOOLEAN NOT NULL DEFAULT 0,
+			lock_delay_seconds INTEGER NOT NULL DEFAULT 5
 		);
 		INSERT OR IGNORE INTO hardllama_settings (id) VALUES (1);
 
@@ -1668,6 +1669,36 @@ func (db *database) createHardLlamaTables() error {
 	`)
 	if err != nil {
 		return fmt.Errorf("create hardllama tables: %w", err)
+	}
+
+	// Columns added after the table was first made.
+	for _, col := range []struct{ name, definition string }{
+		{"lock_delay_seconds", "INTEGER NOT NULL DEFAULT 5"},
+	} {
+		var exists bool
+		if err := db.conn.QueryRow(`SELECT COUNT(*) > 0 FROM pragma_table_info('hardllama_settings') WHERE name = ?`, col.name).Scan(&exists); err != nil {
+			return fmt.Errorf("check hardllama tables: %w", err)
+		}
+		if !exists {
+			if _, err := db.conn.Exec(`ALTER TABLE hardllama_settings ADD COLUMN ` + col.name + ` ` + col.definition); err != nil {
+				return fmt.Errorf("add %s: %w", col.name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (db *database) getLockDelay() (int, error) {
+	var seconds int
+	if err := db.conn.QueryRow(`SELECT lock_delay_seconds FROM hardllama_settings WHERE id = 1`).Scan(&seconds); err != nil {
+		return 0, fmt.Errorf("get lock delay: %w", err)
+	}
+	return seconds, nil
+}
+
+func (db *database) setLockDelay(seconds int) error {
+	if _, err := db.conn.Exec(`UPDATE hardllama_settings SET lock_delay_seconds = ? WHERE id = 1`, seconds); err != nil {
+		return fmt.Errorf("set lock delay: %w", err)
 	}
 	return nil
 }

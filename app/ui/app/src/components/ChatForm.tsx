@@ -16,6 +16,7 @@ import {
   useCancelMessage,
 } from "@/hooks/useChats";
 import { useNavigate } from "@tanstack/react-router";
+import { useDraft } from "@/hooks/useDraft";
 import { useSelectedModel } from "@/hooks/useSelectedModel";
 import {
   useHasVisionCapability,
@@ -322,6 +323,15 @@ function ChatForm({
   useEffect(() => {
     resetChatForm();
   }, [chatId]);
+
+  // Keep what was being typed if chats lock or the user leaves the chat.
+  useDraft({
+    chatId,
+    content: message.content,
+    skip: isPrivateChat || privateEnabled || !!editingMessage,
+    restore: (content) =>
+      setMessage((prev) => (prev.content ? prev : { ...prev, content })),
+  });
 
   // Auto-focus textarea when autoFocus is true or when streaming completes (but not when editing)
   useEffect(() => {

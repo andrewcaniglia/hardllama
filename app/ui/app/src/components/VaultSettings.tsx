@@ -88,7 +88,7 @@ export function VaultSettings() {
             <Label>Chat encryption</Label>
             <Description>
               Chats are encrypted on disk. They lock when you quit, lock your
-              screen, or after 15 minutes idle.
+              screen, leave HardLlama, or after 15 minutes idle.
             </Description>
             {message && (
               <p

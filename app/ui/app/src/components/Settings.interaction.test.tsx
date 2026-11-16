@@ -64,6 +64,9 @@ vi.mock("@/components/ModelServerSettings", () => ({
   ModelServerSettings: () => null,
 }));
 
+vi.mock("@/components/LockDelaySettings", () => ({
+  LockDelaySettings: () => null,
+}));
 vi.mock("@/components/ShareSettings", () => ({
   ShareSettings: () => null,
 }));

@@ -612,7 +612,7 @@ func (s *Store) SetupVault(password string) error {
 		return err
 	}
 	s.startVaultTimer()
-	return nil
+	return s.drafts.ensureKey(s.db.vault.Load())
 }
 
 // UnlockVault makes chats readable until LockVault is called.
@@ -627,7 +627,7 @@ func (s *Store) UnlockVault(password string) error {
 		return err
 	}
 	s.startVaultTimer()
-	return nil
+	return s.drafts.ensureKey(s.db.vault.Load())
 }
 
 // ChangeVaultPassword replaces the password. The vault stays unlocked.
@@ -635,11 +635,19 @@ func (s *Store) ChangeVaultPassword(current, next string) error {
 	if err := s.ensureDB(); err != nil {
 		return err
 	}
+	// Keep saved drafts readable under the new key.
+	draftKey, err := s.drafts.privateKey(s.db.vault.Load())
+	if err != nil {
+		return err
+	}
 	if err := s.db.changeVaultPassword(current, next); err != nil {
 		return err
 	}
 	s.startVaultTimer()
-	return nil
+	if draftKey == nil {
+		return s.drafts.ensureKey(s.db.vault.Load())
+	}
+	return s.drafts.reseal(s.db.vault.Load(), draftKey)
 }
 
 // LockVault discards the key and any private chats held in memory. It does
@@ -666,6 +674,13 @@ func (s *Store) startVaultTimer() {
 		s.vaultTimer.Stop()
 	}
 	s.vaultTimer = time.AfterFunc(vaultIdleTimeout, s.LockVault)
+}
+
+// TouchVault counts as activity for the idle lock. The window calls it
+// while the user is typing or clicking, since that doesn't otherwise reach
+// the database.
+func (s *Store) TouchVault() {
+	s.touchVault()
 }
 
 // touchVault restarts the idle timer.
