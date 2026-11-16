@@ -774,3 +774,54 @@ export const setLockDelay = (seconds: number) =>
     method: "PUT",
     body: JSON.stringify({ seconds }),
   });
+
+// The context counter.
+
+export interface ContextUsage {
+  model: string;
+  prompt: number;
+  reply: number;
+  limit: number;
+  configured: number;
+  messages: number;
+  truncated: boolean;
+}
+
+export interface ChatContext {
+  usage: ContextUsage | null;
+  estimate: number;
+}
+
+export const getChatContext = (chatId: string) =>
+  jsonRequest<ChatContext>(
+    `/api/v1/chat/${encodeURIComponent(chatId)}/context`,
+  );
+
+export const getModelContextLength = (model: string) =>
+  jsonRequest<{ max: number }>(
+    `/api/v1/model-context-length?model=${encodeURIComponent(model)}`,
+  );
+
+export interface AttachmentEstimate {
+  filename: string;
+  tokens: number;
+  image: boolean;
+}
+
+export async function estimateAttachments(
+  attachments: Array<{ filename: string; data: Uint8Array }>,
+): Promise<AttachmentEstimate[]> {
+  const data = await jsonRequest<{ attachments: AttachmentEstimate[] }>(
+    "/api/v1/estimate-attachments",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        attachments: attachments.map((a) => ({
+          filename: a.filename,
+          data: uint8ArrayToBase64(a.data),
+        })),
+      }),
+    },
+  );
+  return data.attachments;
+}

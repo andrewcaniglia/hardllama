@@ -5,6 +5,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -1660,6 +1661,11 @@ func (db *database) createHardLlamaTables() error {
 		);
 		INSERT OR IGNORE INTO hardllama_settings (id) VALUES (1);
 
+		CREATE TABLE IF NOT EXISTS chat_context (
+			chat_id TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
+			context_usage TEXT NOT NULL
+		);
+
 		CREATE TABLE IF NOT EXISTS share_devices (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -1699,6 +1705,30 @@ func (db *database) getLockDelay() (int, error) {
 func (db *database) setLockDelay(seconds int) error {
 	if _, err := db.conn.Exec(`UPDATE hardllama_settings SET lock_delay_seconds = ? WHERE id = 1`, seconds); err != nil {
 		return fmt.Errorf("set lock delay: %w", err)
+	}
+	return nil
+}
+
+func (db *database) getContextUsage(chatID string) (string, error) {
+	var value string
+	err := db.conn.QueryRow(`SELECT context_usage FROM chat_context WHERE chat_id = ?`, chatID).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get context usage: %w", err)
+	}
+	return db.open("context_usage", value)
+}
+
+func (db *database) setContextUsage(chatID, value string) error {
+	sealed, err := db.seal("context_usage", value)
+	if err != nil {
+		return err
+	}
+	if _, err := db.conn.Exec(`INSERT INTO chat_context (chat_id, context_usage) VALUES (?, ?)
+		ON CONFLICT (chat_id) DO UPDATE SET context_usage = excluded.context_usage`, chatID, sealed); err != nil {
+		return fmt.Errorf("set context usage: %w", err)
 	}
 	return nil
 }

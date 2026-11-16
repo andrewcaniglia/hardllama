@@ -79,6 +79,7 @@ var sealedColumns = []struct {
 	{table: "settings", column: "selected_model"},
 	{table: "settings", column: "working_dir"},
 	{table: "hardllama_settings", column: "model_server"},
+	{table: "chat_context", column: "context_usage"},
 }
 
 type vaultCipher struct {

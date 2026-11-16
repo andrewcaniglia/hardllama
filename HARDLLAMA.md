@@ -12,6 +12,7 @@ The `ollama` server, models and CLI are unchanged. Only the desktop app is diffe
 - **Deleted chats are overwritten** rather than just unlinked.
 - **Updates are off.** The app doesn't check for, download or install updates. See [Updating](#updating).
 - **Nothing leaves your computer by accident.** Ollama's paid cloud models, web search and ollama.com sign-in are gone, and the app doesn't contact ollama.com when it starts. Only downloading models, and checking whether a model has an update, talk to ollama.com.
+- **A context counter.** Under the message box, it shows how many tokens the chat, your message and its attachments will use, against the context length. The chat so far is counted exactly by the model after each reply. What you haven't sent yet is estimated, marked ≈. It turns amber when nearly full, and red when the model won't see the oldest messages, with a link to raise the context length in Settings. Raising it brings them back for the next message.
 - **No connections to other companies' AI apps.** The Apps page, the ChatGPT and Claude Desktop integrations, their installers, the Claude Desktop gateway and their menu bar items are gone.
 
 ## What's encrypted
@@ -27,6 +28,7 @@ The `ollama` server, models and CLI are unchanged. Only the desktop app is diffe
 | Model names | |
 | Browser state | |
 | Selected model and working folder | |
+| Token counts | |
 
 The whole file can't be encrypted, because the `ollama` CLI reads this database and the app needs its settings before you can enter a password. The selected model and working folder read as empty until you unlock.
 

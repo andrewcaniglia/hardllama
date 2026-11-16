@@ -322,6 +322,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/v1/chat/{id}", handle(s.deleteChat))
 	mux.Handle("POST /api/v1/create-chat", handle(s.createChat))
 	mux.Handle("PUT /api/v1/chat/{id}/rename", handle(s.renameChat))
+	mux.Handle("GET /api/v1/chat/{id}/context", handle(s.getContextUsage))
+	mux.Handle("POST /api/v1/estimate-attachments", handle(s.estimateAttachments))
+	mux.Handle("GET /api/v1/model-context-length", handle(s.getModelContextLength))
 
 	mux.Handle("GET /api/v1/vault", handle(s.vaultStatus))
 	mux.Handle("POST /api/v1/vault/setup", handle(s.vaultSetup))
@@ -1191,6 +1194,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 	var pendingAssistantToolCalls []store.ToolCall
 
 	passNum := 1
+	// What the engine reports for the last request, for the context counter.
+	var usage *store.ContextUsage
 
 	for {
 		var toolsExecuted bool
@@ -1232,6 +1237,19 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 				// Remove the loading indicator on first token
 				cancelLoading()
 				loading = false
+			}
+
+			if res.Done {
+				usage = &store.ContextUsage{
+					Model:    req.Model,
+					Prompt:   res.PromptEvalCount,
+					Reply:    res.EvalCount,
+					Messages: len(chatReq.Messages),
+				}
+				// What was asked for, when it can't be looked up.
+				if n, ok := chatReq.Options["num_ctx"].(int); ok {
+					usage.Limit = n
+				}
 			}
 
 			// Start thinking timer on first thinking content or after tool call when thinking again
@@ -1539,6 +1557,18 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 			lastMsg.ThinkingTimeEnd = thinkingTimeEnd
 			lastMsg.UpdatedAt = time.Now()
 			s.Store.UpdateLastMessage(chat.ID, *lastMsg)
+		}
+	}
+
+	if usage != nil {
+		if n := runningContextLength(ctx, c, req.Model); n > 0 {
+			usage.Limit = n
+		}
+		if settings, err := s.Store.Settings(); err == nil {
+			usage.Configured = settings.ContextLength
+		}
+		if err := s.Store.RecordContextUsage(chat.ID, *usage); err != nil {
+			s.log().Warn("failed to save context usage", "error", err)
 		}
 	}
 
@@ -2171,6 +2201,15 @@ func (s *Server) buildChatRequest(chat *store.Chat, model string, think any, ava
 		Messages: msgs,
 		Stream:   ptr(true),
 		Think:    thinkValue,
+	}
+
+	// A paired computer's engine doesn't know this computer's Context length
+	// setting, so send it with each request. The engine loads the model with
+	// it, so this setting applies wherever models run.
+	if _, _, remote := s.modelServer(); remote {
+		if settings, err := s.Store.Settings(); err == nil && settings.ContextLength > 0 {
+			req.Options = map[string]any{"num_ctx": settings.ContextLength}
+		}
 	}
 
 	if len(availableTools) > 0 {

@@ -17,6 +17,7 @@ import {
 } from "@/hooks/useChats";
 import { useNavigate } from "@tanstack/react-router";
 import { useDraft } from "@/hooks/useDraft";
+import { ContextCounter } from "@/components/ContextCounter";
 import { useSelectedModel } from "@/hooks/useSelectedModel";
 import {
   useHasVisionCapability,
@@ -1040,6 +1041,13 @@ function ChatForm({
           </div>
         </div>
       </div>
+
+      <ContextCounter
+        chatId={chatId}
+        model={selectedModel?.model}
+        content={message.content}
+        attachments={message.attachments}
+      />
 
       {/* Hidden file input for fallback */}
       <input

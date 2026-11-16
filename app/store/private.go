@@ -16,6 +16,29 @@ import (
 type privateChats struct {
 	mu    sync.Mutex
 	chats map[string]*Chat
+	usage map[string]ContextUsage
+}
+
+func (p *privateChats) contextUsage(id string) *ContextUsage {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if u, ok := p.usage[id]; ok {
+		return &u
+	}
+	return nil
+}
+
+func (p *privateChats) setContextUsage(id string, u ContextUsage) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.chats[id] == nil {
+		// Deleted while the reply was streaming.
+		return
+	}
+	if p.usage == nil {
+		p.usage = map[string]ContextUsage{}
+	}
+	p.usage[id] = u
 }
 
 // get reports whether id is private. The chat is nil if it has been deleted.
@@ -79,6 +102,7 @@ func (p *privateChats) remove(id string) bool {
 		return false
 	}
 	p.chats[id] = nil
+	delete(p.usage, id)
 	return true
 }
 
@@ -90,6 +114,7 @@ func (p *privateChats) clear() {
 	for id := range p.chats {
 		p.chats[id] = nil
 	}
+	p.usage = nil
 }
 
 // list returns all private chats, newest first.

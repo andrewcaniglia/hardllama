@@ -54,7 +54,7 @@ export function ModelServerSettings() {
             <>
               <Description>
                 Models run on the computer at {paired}. Chats are still saved
-                only on this one.
+                only on this one. Your Context length setting applies there too.
               </Description>
               <div className="mt-2">
                 <Button

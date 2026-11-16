@@ -193,3 +193,28 @@ type Draft struct {
 type LockDelay struct {
 	Seconds int `json:"seconds"`
 }
+
+// ContextUsageResponse is how much of the context window a chat's last
+// reply used. Usage is nil before the first reply.
+type ContextUsageResponse struct {
+	Usage *store.ContextUsage `json:"usage"`
+	// Estimate guesses the chat's tokens, for when Usage is missing or was
+	// counted with another model.
+	Estimate int `json:"estimate"`
+}
+
+// ModelContextLengthResponse is the most context a model supports, 0 if
+// unknown.
+type ModelContextLengthResponse struct {
+	Max int `json:"max"`
+}
+
+type AttachmentEstimate struct {
+	Filename string `json:"filename"`
+	Tokens   int    `json:"tokens"`
+	Image    bool   `json:"image"`
+}
+
+type AttachmentEstimateResponse struct {
+	Attachments []AttachmentEstimate `json:"attachments"`
+}
