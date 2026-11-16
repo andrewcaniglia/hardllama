@@ -902,6 +902,7 @@ function OtherRoleMessage({
             thinking={message.thinking}
             startTime={message.thinkingTimeStart}
             endTime={message.thinkingTimeEnd}
+            streaming={isStreaming}
           />
         )}
 

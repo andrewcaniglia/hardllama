@@ -4,8 +4,10 @@ package ui
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/app/store"
@@ -28,8 +30,14 @@ type lockedReply struct {
 	private bool
 	// onLock runs once, when chats lock during the reply.
 	onLock func()
+	// thinkingAtLock reports whether the model was thinking when chats
+	// locked.
+	thinkingAtLock func() bool
 
 	active atomic.Bool
+	// thinking is whether the model is thinking, once chats have locked,
+	// so the reply records when it stopped.
+	thinking bool
 }
 
 func (l *lockedReply) locked() bool {
@@ -55,16 +63,40 @@ func (l *lockedReply) wrap(next func(api.ChatResponse) error) func(api.ChatRespo
 				// wasn't.
 			}
 			l.active.Store(true)
+			l.thinking = l.thinkingAtLock != nil && l.thinkingAtLock()
 			l.onLock()
 		}
 		if len(res.Message.ToolCalls) > 0 {
 			return errToolWhileLocked
 		}
-		if res.Message.Content == "" && res.Message.Thinking == "" {
+		piece := store.ReplyPiece{Content: res.Message.Content, Thinking: res.Message.Thinking}
+		now := time.Now()
+		if piece.Thinking != "" && !l.thinking {
+			piece.ThinkingStart = &now
+			l.thinking = true
+		}
+		if piece.Content != "" && l.thinking {
+			piece.ThinkingEnd = &now
+			l.thinking = false
+		}
+		if piece.Content == "" && piece.Thinking == "" && piece.ThinkingEnd == nil {
 			return nil
 		}
-		return l.store.ContinueReply(l.chatID, l.model, res.Message.Content, res.Message.Thinking)
+		return l.store.ContinueReply(l.chatID, l.model, piece)
 	}
+}
+
+// finish records the end of the reply.
+func (l *lockedReply) finish() {
+	if l.thinking {
+		// It stopped while thinking.
+		now := time.Now()
+		if err := l.store.ContinueReply(l.chatID, l.model, store.ReplyPiece{ThinkingEnd: &now}); err != nil {
+			slog.Warn("failed to record the end of thinking", "error", err)
+		}
+		l.thinking = false
+	}
+	l.store.FinishReply(l.chatID)
 }
 
 // getReplyFinishing reports whether a chat's reply is still being written

@@ -30,6 +30,9 @@ type replyEngine struct {
 	lock      func()
 	release   chan struct{}
 	finished  chan struct{}
+	// pause waits before saying the reply is done.
+	pause    time.Duration
+	lastSent time.Time
 }
 
 func (e *replyEngine) serve(t *testing.T) {
@@ -51,7 +54,9 @@ func (e *replyEngine) serve(t *testing.T) {
 					return
 				}
 				w.(http.Flusher).Flush()
+				e.lastSent = time.Now()
 			}
+			time.Sleep(e.pause)
 			enc.Encode(api.ChatResponse{Done: true})
 			if e.finished != nil {
 				close(e.finished)
@@ -289,5 +294,49 @@ func TestPrivateReplyStopsOnLock(t *testing.T) {
 	}
 	if strings.Contains(window, afterLockSecret) {
 		t.Fatal("the window was sent a private reply after chats locked")
+	}
+}
+
+func TestReplyAfterLockRecordsThinkingTimes(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		pieces []api.Message
+		answer string
+	}{
+		{"stops thinking and answers after locking", []api.Message{
+			{Role: "assistant", Thinking: "first"},
+			{Role: "assistant", Thinking: " second"},
+			{Role: "assistant", Content: "answer"},
+		}, "answer"},
+		{"ends while still thinking", []api.Message{
+			{Role: "assistant", Thinking: "first"},
+			{Role: "assistant", Thinking: " second"},
+		}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := lockedReplyServer(t)
+			e := &replyEngine{pieces: tt.pieces, lockAfter: 1, lock: s.Store.LockVault, pause: 200 * time.Millisecond}
+			e.serve(t)
+
+			id, _ := send(t, s, context.Background(), false)
+			if err := s.Store.UnlockVault(testPassword); err != nil {
+				t.Fatal(err)
+			}
+			chat, err := s.Store.Chat(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reply := chat.Messages[len(chat.Messages)-1]
+			if reply.Thinking != "first second" || reply.Content != tt.answer {
+				t.Fatalf("reply = %+v", reply)
+			}
+			if reply.ThinkingTimeStart == nil || reply.ThinkingTimeEnd == nil || reply.ThinkingTimeEnd.Before(*reply.ThinkingTimeStart) {
+				t.Fatalf("thinking times: %v to %v", reply.ThinkingTimeStart, reply.ThinkingTimeEnd)
+			}
+			// Thinking ends when the answer starts, not when the reply does.
+			if tt.answer != "" && reply.ThinkingTimeEnd.Sub(e.lastSent) > 100*time.Millisecond {
+				t.Fatalf("thinking ended %v after the answer started", reply.ThinkingTimeEnd.Sub(e.lastSent))
+			}
+		})
 	}
 }

@@ -1220,6 +1220,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 		chatID:  chat.ID,
 		model:   req.Model,
 		private: chat.Private,
+		thinkingAtLock: func() bool {
+			return thinkingTimeStart != nil && thinkingTimeEnd == nil
+		},
 		onLock: func() {
 			keepGoing.Store(true)
 			// The window shows the lock screen, so it's done with this
@@ -1574,7 +1577,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 			if err != nil && !errors.Is(err, errToolWhileLocked) {
 				s.log().Warn("reply after locking stopped", "error", err)
 			}
-			s.Store.FinishReply(chat.ID)
+			afterLock.finish()
 			return nil
 		}
 		if err != nil {

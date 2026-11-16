@@ -29,7 +29,7 @@ func TestReplyWrittenWhileLockedIsSealed(t *testing.T) {
 	s.LockVault()
 
 	for _, piece := range []string{" sensitive", " words"} {
-		if err := s.ContinueReply("c1", "m", piece, ""); err != nil {
+		if err := s.ContinueReply("c1", "m", ReplyPiece{Content: piece}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -67,14 +67,14 @@ func TestReplyLockedTwice(t *testing.T) {
 	replyChat(t, s, true)
 
 	s.LockVault()
-	s.ContinueReply("c1", "m", " one", "")
+	s.ContinueReply("c1", "m", ReplyPiece{Content: " one"})
 	if err := s.UnlockVault(vaultPassword); err != nil {
 		t.Fatal(err)
 	}
 	// Unlocked, the next piece is added right away.
-	s.ContinueReply("c1", "m", " two", "")
+	s.ContinueReply("c1", "m", ReplyPiece{Content: " two"})
 	s.LockVault()
-	s.ContinueReply("c1", "m", " three", "")
+	s.ContinueReply("c1", "m", ReplyPiece{Content: " three"})
 	s.FinishReply("c1")
 	if err := s.UnlockVault(vaultPassword); err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestReplyDroppedIfChatChanged(t *testing.T) {
 	}
 	replyChat(t, s, true)
 	s.LockVault()
-	s.ContinueReply("c1", "m", " stray", "")
+	s.ContinueReply("c1", "m", ReplyPiece{Content: " stray"})
 	s.FinishReply("c1")
 	// As if the chat had gained messages since the reply was cut off.
 	s.pending.replies["c1"].messages = 5
@@ -121,7 +121,7 @@ func TestReplyForADeletedChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.LockVault()
-	s.ContinueReply("c1", "m", " stray", "")
+	s.ContinueReply("c1", "m", ReplyPiece{Content: " stray"})
 	s.FinishReply("c1")
 	if err := s.UnlockVault(vaultPassword); err != nil {
 		t.Fatal(err)

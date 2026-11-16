@@ -28,9 +28,30 @@ type pendingReply struct {
 	done     bool
 }
 
-type replyPiece struct {
+// ReplyPiece is part of a reply written after chats locked.
+type ReplyPiece struct {
 	Content  string `json:"c,omitempty"`
 	Thinking string `json:"t,omitempty"`
+	// When the model started and stopped thinking, if it happened in
+	// this piece.
+	ThinkingStart *time.Time `json:"ts,omitempty"`
+	ThinkingEnd   *time.Time `json:"te,omitempty"`
+}
+
+func (p ReplyPiece) empty() bool {
+	return p.Content == "" && p.Thinking == "" && p.ThinkingStart == nil && p.ThinkingEnd == nil
+}
+
+// add combines a later piece into p.
+func (p *ReplyPiece) add(next ReplyPiece) {
+	p.Content += next.Content
+	p.Thinking += next.Thinking
+	if p.ThinkingStart == nil {
+		p.ThinkingStart = next.ThinkingStart
+	}
+	if next.ThinkingEnd != nil {
+		p.ThinkingEnd = next.ThinkingEnd
+	}
 }
 
 type pendingReplies struct {
@@ -42,7 +63,7 @@ type pendingReplies struct {
 // after chats locked. While locked, it's encrypted so only the password can
 // read it, and added to the chat at the next unlock. While unlocked, it's
 // added right away.
-func (s *Store) ContinueReply(chatID, model, content, thinking string) error {
+func (s *Store) ContinueReply(chatID, model string, piece ReplyPiece) error {
 	if err := s.ensureDB(); err != nil {
 		return err
 	}
@@ -67,7 +88,7 @@ func (s *Store) ContinueReply(chatID, model, content, thinking string) error {
 		if err := s.addReplyLocked(chatID, p); err != nil {
 			return err
 		}
-		return s.applyReplyLocked(chatID, p, replyPiece{Content: content, Thinking: thinking})
+		return s.applyReplyLocked(chatID, p, piece)
 	}
 
 	if p.sender == nil {
@@ -83,7 +104,7 @@ func (s *Store) ContinueReply(chatID, model, content, thinking string) error {
 		}
 		p.enc, p.sender = enc, sender
 	}
-	data, err := json.Marshal(replyPiece{Content: content, Thinking: thinking})
+	data, err := json.Marshal(piece)
 	if err != nil {
 		return err
 	}
@@ -153,18 +174,17 @@ func (s *Store) addReplyLocked(chatID string, p *pendingReply) error {
 	if err != nil {
 		return err
 	}
-	var all replyPiece
+	var all ReplyPiece
 	for _, sealed := range p.pieces {
 		data, err := r.Open(nil, sealed)
 		if err != nil {
 			return ErrVaultDecryptFail
 		}
-		var piece replyPiece
+		var piece ReplyPiece
 		if err := json.Unmarshal(data, &piece); err != nil {
 			return err
 		}
-		all.Content += piece.Content
-		all.Thinking += piece.Thinking
+		all.add(piece)
 	}
 	// The next time chats lock starts a new sender.
 	p.enc, p.sender, p.pieces = nil, nil, nil
@@ -173,8 +193,8 @@ func (s *Store) addReplyLocked(chatID string, p *pendingReply) error {
 
 // applyReplyLocked adds text to the reply in the chat. s.pending.mu must be
 // held, and chats unlocked.
-func (s *Store) applyReplyLocked(chatID string, p *pendingReply, piece replyPiece) error {
-	if piece.Content == "" && piece.Thinking == "" {
+func (s *Store) applyReplyLocked(chatID string, p *pendingReply, piece ReplyPiece) error {
+	if piece.empty() {
 		return nil
 	}
 	chat, err := s.Chat(chatID)
@@ -188,11 +208,22 @@ func (s *Store) applyReplyLocked(chatID string, p *pendingReply, piece replyPiec
 		msg := chat.Messages[n-1]
 		msg.Content += piece.Content
 		msg.Thinking += piece.Thinking
+		if msg.ThinkingTimeStart == nil {
+			msg.ThinkingTimeStart = piece.ThinkingStart
+		}
+		if piece.ThinkingEnd != nil {
+			msg.ThinkingTimeEnd = piece.ThinkingEnd
+		}
 		msg.UpdatedAt = time.Now()
 		return s.UpdateLastMessage(chatID, msg)
 	}
 	// The reply hadn't started when chats locked.
-	msg := NewMessage("assistant", piece.Content, &MessageOptions{Model: p.model, Thinking: piece.Thinking})
+	msg := NewMessage("assistant", piece.Content, &MessageOptions{
+		Model:             p.model,
+		Thinking:          piece.Thinking,
+		ThinkingTimeStart: piece.ThinkingStart,
+		ThinkingTimeEnd:   piece.ThinkingEnd,
+	})
 	if err := s.AppendMessage(chatID, msg); err != nil {
 		return err
 	}

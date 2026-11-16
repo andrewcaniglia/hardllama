@@ -5,10 +5,15 @@ export default function Thinking({
   thinking,
   startTime,
   endTime,
+  streaming = true,
 }: {
   thinking: string;
   startTime?: Date;
   endTime?: Date;
+  // Whether the message is still streaming in. A reply that finished
+  // without a recorded end time, such as one finished while HardLlama was
+  // locked, is done thinking.
+  streaming?: boolean;
 }) {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
@@ -17,8 +22,8 @@ export default function Thinking({
   const contentRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const activelyThinking = startTime && !endTime;
-  const finishedThinking = startTime && endTime;
+  const activelyThinking = streaming && !!startTime && !endTime;
+  const finishedThinking = !activelyThinking;
 
   // Auto-collapse when thinking is done (only if user hasn't manually interacted)
   useEffect(() => {
@@ -131,7 +136,7 @@ export default function Thinking({
         <h3 className="ml-6 select-text">
           {activelyThinking
             ? "Thinking..."
-            : finishedThinking
+            : startTime && endTime
               ? (() => {
                   const thinkingTime =
                     (endTime.getTime() - startTime.getTime()) / 1000;
@@ -139,7 +144,7 @@ export default function Thinking({
                     ? "Thought for a moment"
                     : `Thought for ${thinkingTime.toFixed(1)} seconds`;
                 })()
-              : "Thinking..."}
+              : "Thought"}
         </h3>
       </div>
       <div
