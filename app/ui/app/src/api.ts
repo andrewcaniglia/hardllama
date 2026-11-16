@@ -831,3 +831,13 @@ export const getReplyFinishing = (chatId: string) =>
   jsonRequest<{ finishing: boolean }>(
     `/api/v1/chat/${encodeURIComponent(chatId)}/finishing`,
   );
+
+// Custom instructions, added to the system prompt of every chat.
+export const getCustomInstructions = () =>
+  jsonRequest<{ instructions: string }>("/api/v1/custom-instructions");
+
+export const setCustomInstructions = (instructions: string) =>
+  jsonRequest<{ instructions: string }>("/api/v1/custom-instructions", {
+    method: "PUT",
+    body: JSON.stringify({ instructions }),
+  });

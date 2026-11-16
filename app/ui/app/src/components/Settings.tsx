@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Field, Label, Description } from "@/components/ui/fieldset";
 import { VaultSettings } from "@/components/VaultSettings";
 import { LockDelaySettings } from "@/components/LockDelaySettings";
+import { CustomInstructionsSettings } from "@/components/CustomInstructionsSettings";
 import { ModelServerSettings } from "@/components/ModelServerSettings";
 import { ShareSettings } from "@/components/ShareSettings";
 import { OLLAMA_ACCOUNTS, THIRD_PARTY_APPS } from "@/lib/hardllama";
@@ -711,6 +712,8 @@ export default function Settings() {
                   </div>
                 </div>
               </Field>
+
+              <CustomInstructionsSettings />
 
               {/* Context Length */}
               <Field>

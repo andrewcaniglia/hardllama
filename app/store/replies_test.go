@@ -130,3 +130,24 @@ func TestReplyForADeletedChat(t *testing.T) {
 		t.Fatal("deleted chat came back")
 	}
 }
+
+func TestCustomInstructionsSealed(t *testing.T) {
+	s := privateTestStore(t)
+	if err := s.SetupVault(vaultPassword); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetCustomInstructions("be brief"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.CustomInstructions(); err != nil || got != "be brief" {
+		t.Fatalf("CustomInstructions = %q, %v", got, err)
+	}
+	s.LockVault()
+	if _, err := s.CustomInstructions(); err == nil {
+		t.Fatal("read while locked")
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertAllSealed(t, s.DBPath)
+}

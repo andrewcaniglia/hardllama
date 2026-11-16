@@ -334,6 +334,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/vault/lock", handle(s.vaultLock))
 	mux.Handle("POST /api/v1/vault/password", handle(s.vaultChangePassword))
 	mux.Handle("POST /api/v1/vault/activity", handle(s.vaultActivity))
+	mux.Handle("GET /api/v1/custom-instructions", handle(s.getCustomInstructions))
+	mux.Handle("PUT /api/v1/custom-instructions", handle(s.setCustomInstructions))
 	mux.Handle("GET /api/v1/vault/lock-delay", handle(s.getLockDelay))
 	mux.Handle("PUT /api/v1/vault/lock-delay", handle(s.setLockDelay))
 	mux.Handle("PUT /api/v1/drafts/{id}", handle(s.saveDraft))
@@ -1209,6 +1211,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 	var usage *store.ContextUsage
 
 	var chatReq *api.ChatRequest
+	system, err := s.systemPrompt(details.System)
+	if err != nil {
+		return err
+	}
 	afterLock := &lockedReply{
 		store:   s.Store,
 		chatID:  chat.ID,
@@ -1261,6 +1267,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 		chatReq, err = s.buildChatRequest(reqChat, req.Model, thinkValue, availableTools)
 		if err != nil {
 			return err
+		}
+		if system != "" {
+			chatReq.Messages = append([]api.Message{{Role: "system", Content: system}}, chatReq.Messages...)
 		}
 
 		err = c.Chat(ctx, chatReq, afterLock.wrap(func(res api.ChatResponse) error {

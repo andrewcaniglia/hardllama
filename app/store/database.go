@@ -1657,7 +1657,8 @@ func (db *database) createHardLlamaTables() error {
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			model_server TEXT NOT NULL DEFAULT '',
 			share_enabled BOOLEAN NOT NULL DEFAULT 0,
-			lock_delay_seconds INTEGER NOT NULL DEFAULT 5
+			lock_delay_seconds INTEGER NOT NULL DEFAULT 5,
+			custom_instructions TEXT NOT NULL DEFAULT ''
 		);
 		INSERT OR IGNORE INTO hardllama_settings (id) VALUES (1);
 
@@ -1680,6 +1681,7 @@ func (db *database) createHardLlamaTables() error {
 	// Columns added after the table was first made.
 	for _, col := range []struct{ name, definition string }{
 		{"lock_delay_seconds", "INTEGER NOT NULL DEFAULT 5"},
+		{"custom_instructions", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		var exists bool
 		if err := db.conn.QueryRow(`SELECT COUNT(*) > 0 FROM pragma_table_info('hardllama_settings') WHERE name = ?`, col.name).Scan(&exists); err != nil {
@@ -1729,6 +1731,25 @@ func (db *database) setContextUsage(chatID, value string) error {
 	if _, err := db.conn.Exec(`INSERT INTO chat_context (chat_id, context_usage) VALUES (?, ?)
 		ON CONFLICT (chat_id) DO UPDATE SET context_usage = excluded.context_usage`, chatID, sealed); err != nil {
 		return fmt.Errorf("set context usage: %w", err)
+	}
+	return nil
+}
+
+func (db *database) getCustomInstructions() (string, error) {
+	var value string
+	if err := db.conn.QueryRow(`SELECT custom_instructions FROM hardllama_settings WHERE id = 1`).Scan(&value); err != nil {
+		return "", fmt.Errorf("get custom instructions: %w", err)
+	}
+	return db.open("custom_instructions", value)
+}
+
+func (db *database) setCustomInstructions(value string) error {
+	sealed, err := db.seal("custom_instructions", value)
+	if err != nil {
+		return err
+	}
+	if _, err := db.conn.Exec(`UPDATE hardllama_settings SET custom_instructions = ? WHERE id = 1`, sealed); err != nil {
+		return fmt.Errorf("set custom instructions: %w", err)
 	}
 	return nil
 }

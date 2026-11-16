@@ -676,6 +676,31 @@ func (s *Store) SetModelServer(p *share.Pairing) error {
 	return s.db.setModelServer(value)
 }
 
+// MaxCustomInstructions is the most custom instructions can hold, in bytes.
+const MaxCustomInstructions = 20000
+
+var ErrCustomInstructionsTooLong = errors.New("custom instructions can be at most 20,000 characters")
+
+// CustomInstructions are added to the system prompt of every chat. They're
+// encrypted, so they can't be read while locked.
+func (s *Store) CustomInstructions() (string, error) {
+	if err := s.chatDB(); err != nil {
+		return "", err
+	}
+	return s.db.getCustomInstructions()
+}
+
+// SetCustomInstructions changes CustomInstructions.
+func (s *Store) SetCustomInstructions(value string) error {
+	if len(value) > MaxCustomInstructions {
+		return ErrCustomInstructionsTooLong
+	}
+	if err := s.chatDB(); err != nil {
+		return err
+	}
+	return s.db.setCustomInstructions(value)
+}
+
 // LockDelays are the choices for how long chats stay unlocked after the user
 // leaves HardLlama.
 var LockDelays = []time.Duration{0, 5 * time.Second, 15 * time.Second, 30 * time.Second, time.Minute}
