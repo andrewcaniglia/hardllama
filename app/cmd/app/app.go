@@ -25,11 +25,13 @@ import (
 	"github.com/ollama/ollama/app/auth"
 	"github.com/ollama/ollama/app/logrotate"
 	"github.com/ollama/ollama/app/server"
+	"github.com/ollama/ollama/app/share"
 	"github.com/ollama/ollama/app/store"
 	"github.com/ollama/ollama/app/tools"
 	"github.com/ollama/ollama/app/ui"
 	"github.com/ollama/ollama/app/updater"
 	"github.com/ollama/ollama/app/version"
+	"github.com/ollama/ollama/envconfig"
 )
 
 var (
@@ -257,6 +259,23 @@ func main() {
 
 	upd := &updater.Updater{Store: st}
 
+	// Share this computer's models with paired devices, if turned on. This
+	// works while chats are locked.
+	shareServer := &share.Server{
+		Dir:     st.Dir(),
+		Devices: st,
+		Engine:  envconfig.ConnectableHost,
+		Logger:  slog.Default(),
+	}
+	if enabled, err := st.ShareEnabled(); err != nil {
+		slog.Warn("failed to read sharing setting", "error", err)
+	} else if enabled {
+		if err := shareServer.Start(); err != nil {
+			slog.Warn("failed to start sharing", "error", err)
+		}
+	}
+	defer shareServer.Stop()
+
 	uiServer := ui.Server{
 		Token: token,
 		Restart: func() {
@@ -268,6 +287,7 @@ func main() {
 			}()
 		},
 		Store:             st,
+		Share:             shareServer,
 		IntegrationModels: desktopModelSettingsHandler(),
 		ToolRegistry:      toolRegistry,
 		Dev:               devMode,

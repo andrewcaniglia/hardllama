@@ -57,10 +57,10 @@ func TestServerCmd(t *testing.T) {
 			dont:     []string{"OLLAMA_HOST=", "OLLAMA_ORIGINS="},
 		},
 		{
-			name:     "expose",
+			name:     "expose is ignored",
 			settings: store.Settings{Expose: true},
-			want:     []string{"OLLAMA_HOST=0.0.0.0:11434", "OLLAMA_MODELS=" + defaultModels},
-			dont:     []string{"OLLAMA_ORIGINS="},
+			want:     []string{"OLLAMA_MODELS=" + defaultModels},
+			dont:     []string{"OLLAMA_HOST=", "OLLAMA_ORIGINS="},
 		},
 		{
 			name:     "browser",
@@ -88,11 +88,10 @@ func TestServerCmd(t *testing.T) {
 				Models:  tmpModels,
 			},
 			want: []string{
-				"OLLAMA_HOST=0.0.0.0:11434",
 				"OLLAMA_ORIGINS=*",
 				"OLLAMA_MODELS=" + tmpModels,
 			},
-			dont: []string{},
+			dont: []string{"OLLAMA_HOST="},
 		},
 	}
 

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ollama/ollama/app/share"
 	"github.com/ollama/ollama/app/types/not"
 	"github.com/ollama/ollama/internal/onboarding"
 )
@@ -233,6 +234,14 @@ type legacyData struct {
 	FirstTimeRun bool   `json:"first-time-run"`
 }
 
+// Dir is the folder holding the database, for other private files.
+func (s *Store) Dir() string {
+	if s.DBPath != "" {
+		return filepath.Dir(s.DBPath)
+	}
+	return filepath.Dir(defaultDBPath)
+}
+
 func (s *Store) ensureDB() error {
 	// Fast path: check if db is already initialized
 	if s.db != nil {
@@ -253,9 +262,12 @@ func (s *Store) ensureDB() error {
 		dbPath = defaultDBPath
 	}
 
-	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+	// Ensure directory exists, and that only this user can look inside.
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return fmt.Errorf("create db directory: %w", err)
+	}
+	if err := os.Chmod(filepath.Dir(dbPath), 0o700); err != nil {
+		return fmt.Errorf("make db directory private: %w", err)
 	}
 
 	database, err := newDatabase(dbPath)
@@ -621,6 +633,87 @@ func (s *Store) UpdateChatBrowserState(chatID string, state json.RawMessage) err
 	}
 
 	return s.db.updateChatBrowserState(chatID, state)
+}
+
+// ModelServer returns the computer this one is paired with to run models,
+// or nil to run them here. It is encrypted, so while chats are locked it
+// reads as nil.
+func (s *Store) ModelServer() (*share.Pairing, error) {
+	if err := s.ensureDB(); err != nil {
+		return nil, err
+	}
+	if s.db.vaultLocked() {
+		return nil, nil
+	}
+	value, err := s.db.getModelServer()
+	if err != nil || value == "" {
+		return nil, err
+	}
+	var p share.Pairing
+	if err := json.Unmarshal([]byte(value), &p); err != nil {
+		return nil, fmt.Errorf("read model server: %w", err)
+	}
+	return &p, nil
+}
+
+// SetModelServer saves the computer this one is paired with, or nil to run
+// models here. It fails while chats are locked.
+func (s *Store) SetModelServer(p *share.Pairing) error {
+	if err := s.chatDB(); err != nil {
+		return err
+	}
+	value := ""
+	if p != nil {
+		data, err := json.Marshal(p)
+		if err != nil {
+			return err
+		}
+		value = string(data)
+	}
+	return s.db.setModelServer(value)
+}
+
+// ShareEnabled reports whether this computer shares its models with paired
+// devices. It is readable while locked, so sharing starts with the app.
+func (s *Store) ShareEnabled() (bool, error) {
+	if err := s.ensureDB(); err != nil {
+		return false, err
+	}
+	return s.db.getShareEnabled()
+}
+
+// SetShareEnabled turns sharing on or off. It fails while chats are locked.
+func (s *Store) SetShareEnabled(enabled bool) error {
+	if err := s.chatDB(); err != nil {
+		return err
+	}
+	return s.db.setShareEnabled(enabled)
+}
+
+// ShareDevices returns the devices paired with this computer. It works while
+// locked, so paired devices can keep using this computer's models.
+func (s *Store) ShareDevices() ([]share.Device, error) {
+	if err := s.ensureDB(); err != nil {
+		return nil, err
+	}
+	return s.db.getShareDevices()
+}
+
+// AddShareDevice saves a newly paired device. Pairing can finish after the
+// app locks, so this works while locked.
+func (s *Store) AddShareDevice(d share.Device) error {
+	if err := s.ensureDB(); err != nil {
+		return err
+	}
+	return s.db.addShareDevice(d)
+}
+
+// RemoveShareDevice unpairs a device. It fails while chats are locked.
+func (s *Store) RemoveShareDevice(id string) error {
+	if err := s.chatDB(); err != nil {
+		return err
+	}
+	return s.db.removeShareDevice(id)
 }
 
 func (s *Store) User() (*User, error) {

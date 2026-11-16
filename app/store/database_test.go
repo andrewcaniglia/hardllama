@@ -26,6 +26,9 @@ func TestSchemaMigrations(t *testing.T) {
 		if err := migratedDB.migrate(); err != nil {
 			t.Fatalf("migration failed: %v", err)
 		}
+		if err := migratedDB.createHardLlamaTables(); err != nil {
+			t.Fatal(err)
+		}
 
 		// Create fresh database with current schema
 		freshDBPath := filepath.Join(tmpDir, "fresh.db")

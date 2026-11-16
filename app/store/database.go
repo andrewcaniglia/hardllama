@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ollama/ollama/app/share"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -181,6 +183,9 @@ func (db *database) init() error {
 	// Check and upgrade schema version if needed
 	if err := db.migrate(); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
+	}
+	if err := db.createHardLlamaTables(); err != nil {
+		return err
 	}
 
 	// Clean up orphaned records created before foreign key constraints were properly enforced
@@ -1638,6 +1643,96 @@ func (db *database) clearUser() error {
 	_, err := db.conn.Exec("DELETE FROM users")
 	if err != nil {
 		return fmt.Errorf("clear user: %w", err)
+	}
+	return nil
+}
+
+// createHardLlamaTables creates HardLlama's own tables. They are created on
+// every open rather than in a migration, so that HardLlama doesn't use up
+// schema versions upstream may need.
+func (db *database) createHardLlamaTables() error {
+	_, err := db.conn.Exec(`
+		CREATE TABLE IF NOT EXISTS hardllama_settings (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			model_server TEXT NOT NULL DEFAULT '',
+			share_enabled BOOLEAN NOT NULL DEFAULT 0
+		);
+		INSERT OR IGNORE INTO hardllama_settings (id) VALUES (1);
+
+		CREATE TABLE IF NOT EXISTS share_devices (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			token_hash BLOB NOT NULL,
+			created_at TIMESTAMP NOT NULL
+		);
+	`)
+	if err != nil {
+		return fmt.Errorf("create hardllama tables: %w", err)
+	}
+	return nil
+}
+
+func (db *database) getModelServer() (string, error) {
+	var value string
+	if err := db.conn.QueryRow(`SELECT model_server FROM hardllama_settings WHERE id = 1`).Scan(&value); err != nil {
+		return "", fmt.Errorf("get model server: %w", err)
+	}
+	return db.open("model_server", value)
+}
+
+func (db *database) setModelServer(value string) error {
+	sealed, err := db.seal("model_server", value)
+	if err != nil {
+		return err
+	}
+	if _, err := db.conn.Exec(`UPDATE hardllama_settings SET model_server = ? WHERE id = 1`, sealed); err != nil {
+		return fmt.Errorf("set model server: %w", err)
+	}
+	return nil
+}
+
+func (db *database) getShareEnabled() (bool, error) {
+	var enabled bool
+	if err := db.conn.QueryRow(`SELECT share_enabled FROM hardllama_settings WHERE id = 1`).Scan(&enabled); err != nil {
+		return false, fmt.Errorf("get sharing: %w", err)
+	}
+	return enabled, nil
+}
+
+func (db *database) setShareEnabled(enabled bool) error {
+	if _, err := db.conn.Exec(`UPDATE hardllama_settings SET share_enabled = ? WHERE id = 1`, enabled); err != nil {
+		return fmt.Errorf("set sharing: %w", err)
+	}
+	return nil
+}
+
+func (db *database) getShareDevices() ([]share.Device, error) {
+	rows, err := db.conn.Query(`SELECT id, name, token_hash, created_at FROM share_devices ORDER BY created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("get paired devices: %w", err)
+	}
+	defer rows.Close()
+	var devices []share.Device
+	for rows.Next() {
+		var d share.Device
+		if err := rows.Scan(&d.ID, &d.Name, &d.TokenHash, &d.CreatedAt); err != nil {
+			return nil, fmt.Errorf("get paired devices: %w", err)
+		}
+		devices = append(devices, d)
+	}
+	return devices, rows.Err()
+}
+
+func (db *database) addShareDevice(d share.Device) error {
+	if _, err := db.conn.Exec(`INSERT INTO share_devices (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)`, d.ID, d.Name, d.TokenHash, d.CreatedAt); err != nil {
+		return fmt.Errorf("add paired device: %w", err)
+	}
+	return nil
+}
+
+func (db *database) removeShareDevice(id string) error {
+	if _, err := db.conn.Exec(`DELETE FROM share_devices WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("remove paired device: %w", err)
 	}
 	return nil
 }

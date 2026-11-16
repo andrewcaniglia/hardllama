@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/app/server"
+	"github.com/ollama/ollama/app/share"
 	"github.com/ollama/ollama/app/store"
 	"github.com/ollama/ollama/app/tools"
 	"github.com/ollama/ollama/app/types/not"
@@ -97,10 +99,12 @@ const (
 )
 
 type Server struct {
-	Logger       *slog.Logger
-	Restart      func()
-	Token        string
-	Store        *store.Store
+	Logger  *slog.Logger
+	Restart func()
+	Token   string
+	Store   *store.Store
+	// Share shares this computer's models with paired devices.
+	Share        *share.Server
 	ToolRegistry *tools.Registry
 	Tools        bool   // if true, the server will use single-turn tools to fulfill the user's request
 	WebSearch    bool   // if true, the server will use single-turn browser tool to fulfill the user's request
@@ -125,65 +129,89 @@ func (s *Server) log() *slog.Logger {
 	return s.Logger
 }
 
-// ollamaProxy creates a reverse proxy handler to the Ollama server
-func (s *Server) ollamaProxy() http.Handler {
+// ollamaProxy creates a reverse proxy handler to the Ollama server. If
+// followPairing is set, it goes to the paired computer when there is one.
+func (s *Server) ollamaProxy(followPairing bool) http.Handler {
 	var (
-		proxy   http.Handler
-		proxyMu sync.Mutex
+		ready       bool
+		proxy       http.Handler
+		proxyTarget string
+		proxyMu     sync.Mutex
 	)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		proxyMu.Lock()
-		p := proxy
-		proxyMu.Unlock()
-
-		if p == nil {
-			proxyMu.Lock()
-			if proxy == nil {
-				var err error
-				for i := range 2 {
-					if i > 0 {
-						s.log().Warn("ollama server not ready, retrying", "attempt", i+1)
-						time.Sleep(1 * time.Second)
-					}
-
-					err = WaitForServer(context.Background(), 10*time.Second)
-					if err == nil {
-						break
-					}
+		if !ready {
+			// This computer's server is started with the app, so wait for it
+			// even when models run elsewhere.
+			var err error
+			for i := range 2 {
+				if i > 0 {
+					s.log().Warn("ollama server not ready, retrying", "attempt", i+1)
+					time.Sleep(1 * time.Second)
 				}
 
-				if err != nil {
-					proxyMu.Unlock()
-					s.log().Error("ollama server not ready after retries", "error", err)
-					http.Error(w, "Ollama server is not ready", http.StatusServiceUnavailable)
+				err = WaitForServer(context.Background(), 10*time.Second)
+				if err == nil {
+					break
+				}
+			}
+
+			if err != nil {
+				proxyMu.Unlock()
+				s.log().Error("ollama server not ready after retries", "error", err)
+				http.Error(w, "Ollama server is not ready", http.StatusServiceUnavailable)
+				return
+			}
+			ready = true
+		}
+
+		target, transport, remote := envconfig.ConnectableHost(), http.RoundTripper(nil), false
+		if followPairing {
+			target, transport, remote = s.modelServer()
+		}
+		// Each pairing has its own transport, so a new pairing at the same
+		// address gets a new proxy.
+		key := target.String()
+		if remote {
+			key += fmt.Sprintf("|%p", transport)
+		}
+		if proxy == nil || proxyTarget != key {
+			s.log().Info("configuring ollama proxy", "remote", remote)
+
+			newProxy := httputil.NewSingleHostReverseProxy(target)
+			originalDirector := newProxy.Director
+			newProxy.Director = func(req *http.Request) {
+				originalDirector(req)
+				req.Host = target.Host
+				// The UI's login cookie, and headers that reveal its port,
+				// are only for this server. Don't pass them on, least of all
+				// to a paired computer.
+				req.Header.Del("Cookie")
+				req.Header.Del("Origin")
+				req.Header.Del("Referer")
+			}
+			if remote {
+				newProxy.Transport = transport
+			}
+			newProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+				s.log().Error("proxy error", "error", err, "remote", remote)
+				if errors.Is(err, share.ErrPinMismatch) {
+					http.Error(w, share.ErrPinMismatch.Error(), http.StatusBadGateway)
 					return
 				}
-
-				target := envconfig.ConnectableHost()
-				s.log().Info("configuring ollama proxy", "target", target.String())
-
-				newProxy := httputil.NewSingleHostReverseProxy(target)
-
-				originalDirector := newProxy.Director
-				newProxy.Director = func(req *http.Request) {
-					originalDirector(req)
-					req.Host = target.Host
-					s.log().Debug("proxying request", "method", req.Method, "path", req.URL.Path, "target", target.Host)
+				if remote {
+					http.Error(w, "can't reach the model server on the other computer", http.StatusBadGateway)
+					return
 				}
-
-				newProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-					s.log().Error("proxy error", "error", err, "path", r.URL.Path, "target", target.String())
-					http.Error(w, "proxy error: "+err.Error(), http.StatusBadGateway)
-				}
-
-				proxy = newProxy
-				p = newProxy
-			} else {
-				p = proxy
+				http.Error(w, "proxy error: "+err.Error(), http.StatusBadGateway)
 			}
-			proxyMu.Unlock()
+
+			proxy = newProxy
+			proxyTarget = key
 		}
+		p := proxy
+		proxyMu.Unlock()
 
 		p.ServeHTTP(w, r)
 	})
@@ -295,6 +323,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/vault/unlock", handle(s.vaultUnlock))
 	mux.Handle("POST /api/v1/vault/lock", handle(s.vaultLock))
 	mux.Handle("POST /api/v1/vault/password", handle(s.vaultChangePassword))
+	mux.Handle("GET /api/v1/model-server", handle(s.getModelServer))
+	mux.Handle("POST /api/v1/model-server/pair", handle(s.pairModelServer))
+	mux.Handle("DELETE /api/v1/model-server", handle(s.unpairModelServer))
+	mux.Handle("GET /api/v1/share", handle(s.getShare))
+	mux.Handle("POST /api/v1/share", handle(s.setShare))
+	mux.Handle("POST /api/v1/share/pair", handle(s.startPairing))
+	mux.Handle("DELETE /api/v1/share/devices/{id}", handle(s.removeShareDevice))
 
 	mux.Handle("GET /api/v1/inference-compute", handle(s.getInferenceCompute))
 	mux.Handle("POST /api/v1/model/upstream", handle(s.modelUpstream))
@@ -312,14 +347,17 @@ func (s *Server) Handler() http.Handler {
 	}
 
 	// Ollama proxy endpoints
-	ollamaProxy := s.ollamaProxy()
+	// Models come from the paired computer if there is one. The ollama.com
+	// account is always this computer's.
+	ollamaProxy := s.ollamaProxy(true)
+	localProxy := s.ollamaProxy(false)
 	mux.Handle("GET /api/tags", ollamaProxy)
 	mux.Handle("POST /api/show", ollamaProxy)
 	mux.Handle("GET /api/version", ollamaProxy)
 	mux.Handle("GET /api/status", ollamaProxy)
 	mux.Handle("HEAD /api/version", ollamaProxy)
-	mux.Handle("POST /api/me", ollamaProxy)
-	mux.Handle("POST /api/signout", ollamaProxy)
+	mux.Handle("POST /api/me", localProxy)
+	mux.Handle("POST /api/signout", localProxy)
 	mux.Handle("GET /api/experimental/model-recommendations", ollamaProxy)
 
 	// React app - catch all non-API routes and serve the React app
@@ -329,7 +367,28 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PATCH /", s.appHandler())
 	mux.Handle("DELETE /", s.appHandler())
 
-	return mux
+	if s.Dev {
+		return mux
+	}
+	return localHostOnly(mux)
+}
+
+// localHostOnly refuses requests addressed to any name but this computer.
+// The UI is served from 127.0.0.1, so anything else is a website that pointed
+// its own name at this computer (DNS rebinding) to reach the API.
+func localHostOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			host = r.Host
+		}
+		switch host {
+		case "127.0.0.1", "localhost", "[::1]", "::1":
+			next.ServeHTTP(w, r)
+		default:
+			http.Error(w, "forbidden", http.StatusForbidden)
+		}
+	})
 }
 
 func (s *Server) getIntegrationStatuses(w http.ResponseWriter, _ *http.Request) error {
@@ -435,7 +494,12 @@ func (s *Server) httpClient() *http.Client {
 // inferenceClient uses almost the same HTTP client, but without a timeout so
 // long requests aren't truncated
 func (s *Server) inferenceClient() *api.Client {
-	return api.NewClient(envconfig.Host(), userAgentHTTPClient(0))
+	target, transport, remote := s.modelServer()
+	client := userAgentHTTPClient(0)
+	if remote {
+		client.Transport = &userAgentTransport{base: transport}
+	}
+	return api.NewClient(target, client)
 }
 
 func userAgentHTTPClient(timeout time.Duration) *http.Client {

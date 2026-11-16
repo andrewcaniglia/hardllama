@@ -55,6 +55,39 @@ To change your password, open **Settings** and click **Change password**. New pa
 
 None of this has been independently audited.
 
+## Running models on another computer
+
+HardLlama can run models on another computer you own, such as one with a faster GPU, while your chats stay saved and encrypted on this one. The other computer must be running HardLlama too. It only sees each prompt while it works on it, and never sees your saved chats.
+
+### Setting it up
+
+1. On the computer with the GPU, open **Settings**, turn on **Share models with my devices**, and click **Pair a device**. It shows a pairing code and the addresses other devices can use.
+2. On this computer, open **Settings → Run models on another computer**, enter one of those addresses and the code, and click **Pair**.
+
+The code works once and expires after 5 minutes. To go back to running models here, click **Use this computer**. To cut a device off, click **Remove** next to it on the sharing computer.
+
+The first time you turn sharing on, macOS or Windows may ask whether HardLlama can accept incoming connections. Allow it, or other devices can't connect.
+
+### How it stays private
+
+The two computers talk over an encrypted connection using a key the sharing computer makes for itself. While pairing, each side proves it knows the code and checks the key the other side really has. After that, this computer only connects to that exact key, and the sharing computer only answers devices it paired.
+
+So the connection stays private on any network, including public Wi-Fi or a VPN. Nobody in between, such as someone on the same network or your VPN provider, can read your prompts or pretend to be the other computer.
+
+Paired devices can only list, download and run models. They can't delete models or see the sharing computer's chats.
+
+### Reaching the other computer
+
+The sharing computer listens on port 11443. On the same network, use its local address. From elsewhere, you need some way to reach it, such as forwarding port 11443 on your router to it, or your own WireGuard tunnel. Either way, the connection is encrypted by HardLlama itself.
+
+### What to know
+
+- Sharing keeps working while the sharing computer is locked, so it can sit at home and serve models. Turning sharing on or off, pairing and removing devices all need it unlocked.
+- Pairing details are encrypted with your chats. While this computer is locked, nothing is sent to the other one.
+- The model list, and downloads started from a chat, are the other computer's.
+- The sharing computer keeps its key in `share-identity.pem` in its HardLlama folder, readable only by you. If it's deleted, paired devices refuse to connect until you pair them again.
+- **Expose Ollama to the network** is gone from Settings and ignored if it was set. It opened the server to your whole network with no password.
+
 ## Logs
 
 The app's log is in `~/.ollama/logs/hardllama-app.log`, readable only by you. It doesn't include chat IDs, message text, attachment names or tool arguments.

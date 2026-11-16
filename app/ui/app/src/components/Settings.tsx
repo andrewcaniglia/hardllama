@@ -4,6 +4,8 @@ import { Text } from "@/components/ui/text";
 import { Input } from "@/components/ui/input";
 import { Field, Label, Description } from "@/components/ui/fieldset";
 import { VaultSettings } from "@/components/VaultSettings";
+import { ModelServerSettings } from "@/components/ModelServerSettings";
+import { ShareSettings } from "@/components/ShareSettings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -16,7 +18,6 @@ import {
   type CodexDesktopModelsSettingsHandle,
 } from "@/components/CodexDesktopModelsSettings";
 import {
-  WifiIcon,
   FolderIcon,
   BoltIcon,
   WrenchIcon,
@@ -654,26 +655,10 @@ export default function Settings() {
                 </Field>
               )}
 
-              {/* Expose Ollama */}
-              <Field>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start space-x-3 flex-1">
-                    <WifiIcon className="mt-1 h-5 w-5 flex-shrink-0 text-black dark:text-neutral-100" />
-                    <div>
-                      <Label>Expose Ollama to the network</Label>
-                      <Description>
-                        Allow other devices or services to access Ollama.
-                      </Description>
-                    </div>
-                  </div>
-                  <div className="flex-shrink-0">
-                    <Switch
-                      checked={settings.Expose}
-                      onChange={(checked) => handleChange("Expose", checked)}
-                    />
-                  </div>
-                </div>
-              </Field>
+              {/* HardLlama replaces Expose Ollama, which opened the server
+                  to the whole network with no password, with pairing. */}
+              <ModelServerSettings />
+              <ShareSettings />
 
               {/* Model Directory */}
               <Field>

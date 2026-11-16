@@ -673,3 +673,66 @@ export async function getCloudStatus(): Promise<CloudStatusResponse | null> {
     source: (data.source as CloudStatusSource) || "none",
   };
 }
+
+export interface ModelServer {
+  address: string;
+}
+
+export interface ShareDevice {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface ShareStatus {
+  enabled: boolean;
+  running: boolean;
+  port: string;
+  addresses: string[];
+  devices: ShareDevice[];
+}
+
+export interface PairingCode {
+  code: string;
+  expires_at: string;
+}
+
+async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || `Request failed: ${response.status}`);
+  }
+  return data;
+}
+
+export const getModelServer = () =>
+  jsonRequest<ModelServer>("/api/v1/model-server");
+
+export const pairModelServer = (address: string, code: string) =>
+  jsonRequest<ModelServer>("/api/v1/model-server/pair", {
+    method: "POST",
+    body: JSON.stringify({ address, code }),
+  });
+
+export const unpairModelServer = () =>
+  jsonRequest<ModelServer>("/api/v1/model-server", { method: "DELETE" });
+
+export const getShare = () => jsonRequest<ShareStatus>("/api/v1/share");
+
+export const setShare = (enabled: boolean) =>
+  jsonRequest<ShareStatus>("/api/v1/share", {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
+
+export const startPairing = () =>
+  jsonRequest<PairingCode>("/api/v1/share/pair", { method: "POST" });
+
+export const removeShareDevice = (id: string) =>
+  jsonRequest<ShareStatus>(`/api/v1/share/devices/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });

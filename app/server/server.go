@@ -20,7 +20,6 @@ import (
 
 	"github.com/ollama/ollama/app/logrotate"
 	"github.com/ollama/ollama/app/store"
-	"github.com/ollama/ollama/envconfig"
 )
 
 const restartDelay = time.Second
@@ -248,9 +247,9 @@ func (s *Server) cmd(ctx context.Context) (*exec.Cmd, error) {
 		s := strings.SplitN(kv, "=", 2)
 		env[s[0]] = s[1]
 	}
-	if settings.Expose {
-		env["OLLAMA_HOST"] = "0.0.0.0:" + envconfig.Host().Port()
-	}
+	// HardLlama ignores the Expose setting. It would open the server to the
+	// whole network with no password and no encryption. To use models on
+	// another computer, pair it under Settings instead.
 	if settings.Browser {
 		env["OLLAMA_ORIGINS"] = "*"
 	}

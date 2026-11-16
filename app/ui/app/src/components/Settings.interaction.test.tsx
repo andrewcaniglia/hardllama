@@ -49,6 +49,14 @@ vi.mock("@/components/VaultSettings", () => ({
   VaultSettings: () => null,
 }));
 
+vi.mock("@/components/ModelServerSettings", () => ({
+  ModelServerSettings: () => null,
+}));
+
+vi.mock("@/components/ShareSettings", () => ({
+  ShareSettings: () => null,
+}));
+
 vi.mock("@/hooks/useUser", () => ({
   useUser: () => ({
     user: {

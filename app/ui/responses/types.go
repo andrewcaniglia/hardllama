@@ -134,6 +134,34 @@ type Error struct {
 	Error string `json:"error"`
 }
 
+// ModelServerResponse is the paired computer that runs models. An empty
+// address means this one.
+type ModelServerResponse struct {
+	Address string `json:"address"`
+}
+
+// ShareResponse describes sharing this computer's models.
+type ShareResponse struct {
+	Enabled   bool          `json:"enabled"`
+	Running   bool          `json:"running"`
+	Port      string        `json:"port"`
+	Addresses []string      `json:"addresses"`
+	Devices   []ShareDevice `json:"devices"`
+}
+
+// ShareDevice is a device paired with this computer.
+type ShareDevice struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// PairingCodeResponse is a new code for pairing a device.
+type PairingCodeResponse struct {
+	Code      string    `json:"code"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 type ModelUpstreamResponse struct {
 	Stale bool   `json:"stale"`
 	Error string `json:"error,omitempty"`

@@ -5,11 +5,14 @@ package store
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ollama/ollama/app/share"
 )
 
 const (
@@ -19,6 +22,12 @@ const (
 )
 
 var vaultDetailTime = time.Date(1987, 6, 5, 4, 3, 2, 1000, time.UTC)
+
+var detailPairing = share.Pairing{
+	Address:     vaultDetailSecret + ".local:11443",
+	Fingerprint: vaultDetailSecret + "-fingerprint",
+	Token:       vaultDetailSecret + "-token",
+}
 
 // assertAllSealed checks the database directly: every non-empty value in an
 // encrypted column must be encrypted.
@@ -142,6 +151,9 @@ func setDetailSettings(t *testing.T, s *Store) {
 	if err := s.SetUser(User{Name: vaultDetailSecret + "-name", Email: vaultDetailSecret + "@example.com", Plan: "pro"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.SetModelServer(&detailPairing); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertDetailSettings(t *testing.T, s *Store) {
@@ -153,6 +165,13 @@ func assertDetailSettings(t *testing.T, s *Store) {
 	}
 	if settings.SelectedModel != vaultDetailSecret+"-selected" || settings.WorkingDir != "/"+vaultDetailSecret+"-folder" {
 		t.Errorf("settings not restored: model %q, folder %q", settings.SelectedModel, settings.WorkingDir)
+	}
+	server, err := s.ModelServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server == nil || *server != detailPairing {
+		t.Errorf("model server not restored: %+v", server)
 	}
 }
 
@@ -258,6 +277,7 @@ func TestVaultUnlockEncryptsLeftovers(t *testing.T) {
 		}},
 		{`UPDATE tool_calls SET type = ?, function_name = ?`, []any{vaultDetailSecret + "-type", vaultDetailSecret + "-tool"}},
 		{`UPDATE settings SET selected_model = ?, working_dir = ?`, []any{vaultDetailSecret + "-selected", "/" + vaultDetailSecret + "-folder"}},
+		{`UPDATE hardllama_settings SET model_server = ?`, []any{`{"address":"` + detailPairing.Address + `","fingerprint":"` + detailPairing.Fingerprint + `","token":"` + detailPairing.Token + `"}`}},
 		{`INSERT INTO users (name, email, plan) VALUES (?, ?, 'pro')`, []any{vaultDetailSecret + "-name", vaultDetailSecret + "@example.com"}},
 		{`PRAGMA wal_checkpoint(TRUNCATE)`, nil},
 	} {
@@ -376,6 +396,12 @@ func TestVaultLockedSettingsKeepEncryptedValues(t *testing.T) {
 	}
 	if settings.SelectedModel != "" || settings.WorkingDir != "" {
 		t.Fatalf("encrypted settings visible while locked: %q %q", settings.SelectedModel, settings.WorkingDir)
+	}
+	if server, err := s.ModelServer(); err != nil || server != nil {
+		t.Fatalf("model server visible while locked: %+v %v", server, err)
+	}
+	if err := s.SetModelServer(nil); !errors.Is(err, ErrVaultLocked) {
+		t.Fatalf("model server changed while locked: %v", err)
 	}
 	settings.SidebarOpen = !settings.SidebarOpen
 	if err := s.SetSettings(settings); err != nil {
