@@ -97,22 +97,50 @@ Models come from Ollama's registry, so turning off app updates doesn't affect do
 
 ## Building
 
-You need Go and Node, but not Xcode or cmake:
+HardLlama builds on Apple Silicon Macs (M1 or later) running macOS 14 or newer. You don't need Xcode or cmake.
 
-```sh
-brew install go node
-```
+1. Install Apple's Command Line Tools, which include the compiler and `git`:
 
-From the repository root:
+   ```sh
+   xcode-select --install
+   ```
 
-```sh
-scripts/build_hardllama.sh            # rebuild, keeping the installed server
-scripts/build_hardllama.sh 0.41.0     # rebuild with the server from that release
-```
+2. Install [Homebrew](https://brew.sh) if you don't have it, then Go and Node:
 
-This only compiles the app. The server and its libraries come from an official release, which must be signed by Ollama. The build goes to `dist/HardLlama.app`, and the script prints the install command. Quit HardLlama before installing.
+   ```sh
+   brew install go node
+   ```
 
-The app is ad-hoc signed, so it can only run on the Mac that built it unless macOS is told to allow it.
+3. Get the code:
+
+   ```sh
+   git clone https://github.com/andrewcaniglia/hardllama.git
+   cd hardllama
+   ```
+
+4. Build it. The first time, pass the Ollama release to take the server from:
+
+   ```sh
+   scripts/build_hardllama.sh 0.40.14
+   ```
+
+   Once HardLlama is installed, you can leave the version out to reuse the installed server:
+
+   ```sh
+   scripts/build_hardllama.sh
+   ```
+
+5. Install it. Quit HardLlama first if it's running:
+
+   ```sh
+   rm -rf /Applications/HardLlama.app && ditto dist/HardLlama.app /Applications/HardLlama.app
+   ```
+
+6. Open HardLlama from Applications and create your password.
+
+The script only compiles the app. The server and its libraries come from the official Ollama release, and the script checks that release is signed by Ollama before using it.
+
+The app is ad-hoc signed, not signed by a registered developer. A copy built on your own Mac opens normally. If you copy it to another Mac, macOS will refuse to open it at first. Try to open it once, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Building it on each Mac avoids this.
 
 ## Updating
 
