@@ -85,8 +85,3 @@ codesign -f --deep -s - --identifier "$BUNDLE_ID" "$OUT"
 codesign --verify --deep --strict "$OUT"
 
 status "Built $OUT ($VERSION)"
-cat >&2 <<INSTALL
-
-To install it, quit HardLlama and run:
-  rm -rf $INSTALLED && ditto $OUT $INSTALLED
-INSTALL
