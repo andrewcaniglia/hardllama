@@ -181,6 +181,8 @@ HardLlama builds on Apple Silicon Macs (M1 or later) running macOS 14 or newer. 
 
 6. Open HardLlama from Applications and create your password.
 
+To get later changes, see [New HardLlama changes](#updating). Pulling alone doesn't change the installed app.
+
 The script only compiles the app. The server and its libraries come from the official Ollama release, and the script checks that release is signed by Ollama before using it.
 
 The app is ad-hoc signed, not signed by a registered developer. A copy built on your own Mac opens normally. If you copy it to another Mac, macOS will refuse to open it at first. Try to open it once, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Building it on each Mac avoids this.
@@ -189,13 +191,27 @@ The app is ad-hoc signed, not signed by a registered developer. A copy built on 
 
 Nothing updates by itself, including security fixes, so watch [Ollama's releases](https://github.com/ollama/ollama/releases).
 
-**Server updates** bring new models, speed improvements and most fixes. Our changes don't touch the server, so pass the new version to the build script.
-
-**App updates** mean replaying our changes on top of Ollama's code:
+**New HardLlama changes.** `git pull` only updates the code. The app in `dist/` isn't tracked by git, so after pulling you have to build and install again, or you'll reinstall the old app. Quit HardLlama first, then:
 
 ```sh
-git fetch origin
-git rebase origin/main
+git pull && scripts/build_hardllama.sh && rm -rf /Applications/HardLlama.app && ditto dist/HardLlama.app /Applications/HardLlama.app
+```
+
+Each step only runs if the one before it worked, so a failed build leaves the installed app alone.
+
+**Server updates** bring new models, speed improvements and most fixes. Our changes don't touch the server, so pass the new version to the build script.
+
+**App updates** mean replaying our changes on top of Ollama's code. If you cloned HardLlama, `origin` is HardLlama, so add Ollama's repo as `upstream` once:
+
+```sh
+git remote add upstream https://github.com/ollama/ollama.git
+```
+
+Then:
+
+```sh
+git fetch upstream
+git rebase upstream/main
 ```
 
 Then run the tests and rebuild:
