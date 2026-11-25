@@ -1,6 +1,6 @@
 # HardLlama
 
-<img src="app/ui/app/public/hardllama.png" alt="HardLlama mascot wearing polished black armor" width="128" height="128">
+<img src=".github/hardllama-matte.png" alt="HardLlama mascot wearing matte black armor" width="128" height="128">
 
 HardLlama is a hardened version of the [Ollama](https://github.com/ollama/ollama) desktop app for Apple Silicon Macs. It keeps saved chats encrypted on disk, even while the app is open, and locks the chat window when you leave.
 
