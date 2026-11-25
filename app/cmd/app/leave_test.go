@@ -46,10 +46,10 @@ func locked(t *testing.T, s *store.Store) bool {
 }
 
 func TestLeavingLocksAfterTheChosenDelay(t *testing.T) {
-	s, waited := leaveTestStore(t, 30*time.Second)
+	s, waited := leaveTestStore(t, 5*time.Minute)
 	leftApp()
-	if *waited != 30*time.Second {
-		t.Fatalf("waited %v, want 30s", *waited)
+	if *waited != 5*time.Minute {
+		t.Fatalf("waited %v, want 5m", *waited)
 	}
 	if locked(t, s) {
 		t.Fatal("locked before the delay")

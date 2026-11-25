@@ -36,29 +36,29 @@ describe("LockDelaySettings", () => {
     mocks.setLockDelay.mockReset();
   });
 
-  it("offers instantly to 1 minute and shows the saved choice", async () => {
+  it("offers instantly to 15 minutes and shows the saved choice", async () => {
     mocks.getLockDelay.mockResolvedValue({ seconds: 30 });
     const renderer = await render();
     expect(
       slider(renderer).props.options.map((o: { value: number }) => o.value),
-    ).toEqual([0, 5, 15, 30, 60]);
+    ).toEqual([0, 5, 15, 30, 60, 300, 600, 900]);
     expect(slider(renderer).props.value).toBe(30);
   });
 
-  it("saves a new choice", async () => {
+  it.each([300, 600, 900])("saves a delay of %i seconds", async (seconds) => {
     mocks.getLockDelay.mockResolvedValue({ seconds: 5 });
-    mocks.setLockDelay.mockResolvedValue({ seconds: 60 });
+    mocks.setLockDelay.mockResolvedValue({ seconds });
     const renderer = await render();
 
     await act(async () => {
-      await slider(renderer).props.onChange(60);
+      await slider(renderer).props.onChange(seconds);
     });
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(mocks.setLockDelay).toHaveBeenCalledWith(60);
-    expect(slider(renderer).props.value).toBe(60);
+    expect(mocks.setLockDelay).toHaveBeenCalledWith(seconds);
+    expect(slider(renderer).props.value).toBe(seconds);
   });
 
   it("shows why a change failed and keeps the saved choice", async () => {

@@ -712,10 +712,10 @@ func (s *Store) SetCustomInstructions(value string) error {
 
 // LockDelays are the choices for how long chats stay unlocked after the user
 // leaves HardLlama.
-var LockDelays = []time.Duration{0, 5 * time.Second, 15 * time.Second, 30 * time.Second, time.Minute}
+var LockDelays = []time.Duration{0, 5 * time.Second, 15 * time.Second, 30 * time.Second, time.Minute, 5 * time.Minute, 10 * time.Minute, 15 * time.Minute}
 
 // ErrBadLockDelay is returned for a lock delay that isn't one of LockDelays.
-var ErrBadLockDelay = errors.New("choose instantly, 5 seconds, 15 seconds, 30 seconds or 1 minute")
+var ErrBadLockDelay = errors.New("choose instantly, 5 seconds, 15 seconds, 30 seconds, 1 minute, 5 minutes, 10 minutes or 15 minutes")
 
 // LockDelay is how long chats stay unlocked after the user switches to
 // another app or closes the window.

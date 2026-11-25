@@ -176,15 +176,20 @@ func TestLockDelay(t *testing.T) {
 	if d, _ := s.LockDelay(); d != 0 {
 		t.Fatalf("instant = %v", d)
 	}
-	if err := s.SetLockDelay(time.Minute); err != nil {
-		t.Fatal(err)
+	for _, delay := range []time.Duration{time.Minute, 5 * time.Minute, 10 * time.Minute, 15 * time.Minute} {
+		if err := s.SetLockDelay(delay); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := s.LockDelay(); err != nil || got != delay {
+			t.Fatalf("saved delay = %v, %v; want %v", got, err, delay)
+		}
 	}
 	s.LockVault()
 	// Someone at a locked computer can't keep it unlocked longer next time.
 	if err := s.SetLockDelay(15 * time.Second); !errors.Is(err, ErrVaultLocked) {
 		t.Fatalf("changed while locked: %v", err)
 	}
-	if d, _ := s.LockDelay(); d != time.Minute {
+	if d, _ := s.LockDelay(); d != 15*time.Minute {
 		t.Fatalf("delay = %v", d)
 	}
 

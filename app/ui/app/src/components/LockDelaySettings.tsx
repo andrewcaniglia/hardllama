@@ -11,6 +11,9 @@ export const LOCK_DELAY_OPTIONS = [
   { value: 15, label: "15 sec" },
   { value: 30, label: "30 sec" },
   { value: 60, label: "1 min" },
+  { value: 300, label: "5 min" },
+  { value: 600, label: "10 min" },
+  { value: 900, label: "15 min" },
 ];
 
 // LockDelaySettings chooses how long chats stay unlocked after the user
