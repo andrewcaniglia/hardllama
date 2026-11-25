@@ -268,6 +268,7 @@ func (w *Webview) Run(path string) unsafe.Pointer {
 
 		// Webviews do not allow access to the file system by default, so we need to
 		// bind file system operations here
+		wv.Bind("saveChatExport", w.saveChatExport)
 		wv.Bind("selectModelsDirectory", func() {
 			go func() {
 				// Helper function to call the JavaScript callback with data or null

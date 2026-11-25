@@ -52,7 +52,7 @@ export const useQueryBatcher = <T>(
       if (batchRef.current.batchTimeout) {
         clearTimeout(batchRef.current.batchTimeout);
       }
-      batchRef.current.batchTimeout = setTimeout(flushBatch, batchInterval);
+      batchRef.current.batchTimeout = window.setTimeout(flushBatch, batchInterval);
     },
     [queryClient, queryKey, flushBatch, batchInterval, immediateFirst],
   );
@@ -110,7 +110,7 @@ export const createQueryBatcher = <T>(
     if (batchTimeout) {
       clearTimeout(batchTimeout);
     }
-    batchTimeout = setTimeout(flushBatch, batchInterval);
+    batchTimeout = window.setTimeout(flushBatch, batchInterval);
   };
 
   const cleanup = () => {

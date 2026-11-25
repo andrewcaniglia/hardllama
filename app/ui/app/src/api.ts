@@ -96,7 +96,7 @@ export function getCodexDesktopModelsSettings(
 }
 
 // Helper function to convert Uint8Array to base64
-function uint8ArrayToBase64(uint8Array: Uint8Array): string {
+export function uint8ArrayToBase64(uint8Array: Uint8Array): string {
   const chunkSize = 0x8000; // 32KB chunks to avoid stack overflow
   let binary = "";
 

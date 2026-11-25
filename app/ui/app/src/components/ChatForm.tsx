@@ -449,6 +449,7 @@ function ChatForm({
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.closest?.('[role="dialog"]')) return;
       // Handle escape key for canceling
       if (e.key === "Escape") {
         e.preventDefault();

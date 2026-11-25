@@ -127,6 +127,7 @@ interface WebviewAPI {
 
 declare global {
   interface Window {
+    saveChatExport?: (format: "pdf" | "md" | "txt", data: string) => Promise<boolean>;
     webview?: WebviewAPI;
     drag?: () => void;
     doubleClick?: () => void;

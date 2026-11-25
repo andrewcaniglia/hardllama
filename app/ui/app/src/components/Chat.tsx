@@ -1,3 +1,4 @@
+import { ChatExport } from "./ChatExport";
 import { ErrorMessage } from "./ErrorMessage";
 import MessageList from "./MessageList";
 import ChatForm from "./ChatForm";
@@ -221,6 +222,9 @@ export default function Chat({ chatId }: { chatId: string }) {
         </div>
       ) : (
         <main className="flex h-screen w-full flex-col relative allow-context-menu select-none">
+          {messages.length > 0 && chatQuery.data?.chat && (
+            <ChatExport key={chatId} chat={chatQuery.data.chat} />
+          )}
           <section
             key={chatId} // This key forces React to recreate the element when chatId changes
             ref={containerRef}

@@ -445,7 +445,7 @@ export default function Settings() {
           window.open(connectUrl, "_blank");
           setIsAwaitingConnection(true);
           // Start polling every 5 seconds
-          const interval = setInterval(() => {
+          const interval = window.setInterval(() => {
             refreshUser();
           }, 5000);
           setPollingInterval(interval);

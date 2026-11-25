@@ -42,6 +42,10 @@ Databases from earlier HardLlama versions only encrypted chat content. The first
 
 Encryption uses AES-256-GCM with a random key. That key is stored wrapped by a key derived from your password with Argon2id, and only exists unwrapped in memory while the app is unlocked.
 
+## Exporting a chat
+
+Open **Export chat** in the upper-right corner, choose whether to include reasoning, then select PDF, plain text, or Markdown to open the save dialog. **Include reasoning traces** adds the thinking text recorded with the messages and is off by default. The transcript lists attachment filenames. The saved file is readable outside the vault, including when you export a private chat.
+
 ## Searching a folder in chat
 
 Click the folder icon beside the attachment button and choose a folder. Each question searches the filenames and text of the selected files, including subfolders. HardLlama sends up to four matching passages with the question and asks the model to cite the relative filenames. When using a paired computer, that computer receives those passages.
