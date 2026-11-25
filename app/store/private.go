@@ -14,9 +14,10 @@ import (
 // streaming when its chat is deleted, and those late writes must be dropped
 // rather than falling through to the database.
 type privateChats struct {
-	mu    sync.Mutex
-	chats map[string]*Chat
-	usage map[string]ContextUsage
+	mu      sync.Mutex
+	chats   map[string]*Chat
+	folders map[string]string
+	usage   map[string]ContextUsage
 }
 
 func (p *privateChats) contextUsage(id string) *ContextUsage {
@@ -102,6 +103,7 @@ func (p *privateChats) remove(id string) bool {
 		return false
 	}
 	p.chats[id] = nil
+	delete(p.folders, id)
 	delete(p.usage, id)
 	return true
 }
@@ -114,6 +116,7 @@ func (p *privateChats) clear() {
 	for id := range p.chats {
 		p.chats[id] = nil
 	}
+	p.folders = nil
 	p.usage = nil
 }
 

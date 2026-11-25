@@ -853,6 +853,10 @@ func (db *database) getChatWithOptions(id string, loadAttachmentData bool) (*Cha
 }
 
 func (db *database) saveChat(chat Chat) error {
+	return db.saveChatWithFolder(chat, "")
+}
+
+func (db *database) saveChatWithFolder(chat Chat, snapshot string) error {
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
@@ -898,6 +902,11 @@ func (db *database) saveChat(chat Chat) error {
 		return fmt.Errorf("save chat: %w", err)
 	}
 
+	if snapshot != "" {
+		if err := db.writeFolder(tx, chat.ID, snapshot); err != nil {
+			return err
+		}
+	}
 	// Delete existing messages (we'll re-insert all)
 	_, err = tx.Exec("DELETE FROM messages WHERE chat_id = ?", chat.ID)
 	if err != nil {
@@ -1661,6 +1670,11 @@ func (db *database) createHardLlamaTables() error {
 			custom_instructions TEXT NOT NULL DEFAULT ''
 		);
 		INSERT OR IGNORE INTO hardllama_settings (id) VALUES (1);
+
+		CREATE TABLE IF NOT EXISTS chat_folders (
+			chat_id TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
+			snapshot TEXT NOT NULL
+		);
 
 		CREATE TABLE IF NOT EXISTS chat_context (
 			chat_id TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,

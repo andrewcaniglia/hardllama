@@ -225,6 +225,6 @@ go test ./app/...
 
 This build uses database schema version 20 for the `vault` table. If Ollama ships its own version 20, databases already at 20 would skip their migration. Don't just renumber: resolve it so that both changes are applied to existing HardLlama databases.
 
-HardLlama's own tables (`hardllama_settings`, `share_devices` and `chat_context`) aren't in the migrations, so they can't collide with upstream's versions. `createHardLlamaTables` in `app/store/database.go` creates them on every start, and adds new columns to existing databases.
+HardLlama's own tables (`hardllama_settings`, `share_devices`, `chat_context`, and `chat_folders`) aren't in the migrations, so they can't collide with upstream's versions. `createHardLlamaTables` in `app/store/database.go` creates them on every start, and adds new columns to existing databases.
 
 Any new upstream column that stores chat content or details about chats must also be added to `sealedColumns` in `app/store/vault.go`, and its writes must go through `seal` (or `sealTime` for timestamps), or it will be saved unencrypted. Reads of timestamp columns must `CAST` them to text, or the SQLite driver turns encrypted values into the zero time. `assertAllSealed` in `vault_details_test.go` checks every listed column.

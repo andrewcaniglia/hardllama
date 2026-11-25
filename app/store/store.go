@@ -543,7 +543,16 @@ func (s *Store) ChatWithOptions(id string, loadAttachmentData bool) (*Chat, erro
 }
 
 func (s *Store) SetChat(chat Chat) error {
+	return s.SetChatWithFolder(chat, "")
+}
+
+// SetChatWithFolder saves an initial folder together with the first message.
+// An empty snapshot preserves the current folder on subsequent chat saves.
+func (s *Store) SetChatWithFolder(chat Chat, snapshot string) error {
 	if s.private.set(chat) {
+		if snapshot != "" {
+			return s.SetFolderSnapshot(chat.ID, snapshot)
+		}
 		return nil
 	}
 
@@ -551,7 +560,7 @@ func (s *Store) SetChat(chat Chat) error {
 		return err
 	}
 
-	return s.db.saveChat(chat)
+	return s.db.saveChatWithFolder(chat, snapshot)
 }
 
 func (s *Store) DeleteChat(id string) error {

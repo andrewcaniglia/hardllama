@@ -80,6 +80,7 @@ var sealedColumns = []struct {
 	{table: "settings", column: "working_dir"},
 	{table: "hardllama_settings", column: "model_server"},
 	{table: "hardllama_settings", column: "custom_instructions"},
+	{table: "chat_folders", column: "snapshot"},
 	{table: "chat_context", column: "context_usage"},
 }
 
