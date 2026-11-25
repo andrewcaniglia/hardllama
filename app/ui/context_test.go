@@ -123,6 +123,19 @@ func TestChatRecordsContextUsage(t *testing.T) {
 	}
 }
 
+func TestSavedAttachmentBreakdown(t *testing.T) {
+	chat := store.NewChat("counter")
+	data := []byte(strings.Repeat("a", 51*1024))
+	chat.Messages = append(chat.Messages, store.NewMessage("user", "abcd", &store.MessageOptions{
+		Attachments: []store.File{{Filename: "notes.txt", Data: data}},
+	}))
+	var resp responses.ContextUsageResponse
+	estimateChat(chat, &resp)
+	if resp.AttachmentCount != 1 || resp.AttachmentTokens < 13056 || resp.Estimate != resp.AttachmentTokens+1 {
+		t.Fatalf("unexpected attachment estimate: %+v", resp)
+	}
+}
+
 func TestEstimateAttachmentsRoute(t *testing.T) {
 	s := &Server{Store: &store.Store{DBPath: filepath.Join(t.TempDir(), "db.sqlite")}, Dev: true}
 	t.Cleanup(func() { s.Store.Close() })

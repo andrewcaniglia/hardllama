@@ -10,8 +10,9 @@ type ContextUsage struct {
 	Model string `json:"model"`
 	// Prompt is every token the model was sent: the chat so far,
 	// attachments, the system prompt and the model's formatting.
-	Prompt int `json:"prompt"`
-	Reply  int `json:"reply"`
+	Prompt       int `json:"prompt"`
+	FolderTokens int `json:"folderTokens,omitempty"` // Estimated size of request-only folder excerpts.
+	Reply        int `json:"reply"`
 	// Limit is the context length the model ran with, or 0 if unknown.
 	Limit int `json:"limit"`
 	// Configured is the context length setting at the time, 0 for the

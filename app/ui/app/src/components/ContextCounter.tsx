@@ -1,3 +1,5 @@
+import { useDeferredValue, useMemo } from "react";
+import { searchFolder, type FolderIndex } from "@/lib/folderSearch";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -11,6 +13,7 @@ import {
 import { estimateTokens } from "@/lib/tokens";
 
 interface ContextCounterProps {
+  folder?: FolderIndex | null;
   chatId: string;
   model?: string;
   content: string;
@@ -44,6 +47,7 @@ export function ContextCounter({
   model,
   content,
   attachments,
+  folder,
 }: ContextCounterProps) {
   const navigate = useNavigate();
   const isNew = chatId === "new";
@@ -74,15 +78,21 @@ export function ContextCounter({
   const newFiles = attachments.filter(
     (a): a is { id: string; filename: string; data: Uint8Array } => !!a.data,
   );
-  const { data: fileEstimates } = useQuery({
+  const { data: fileEstimates, isError: estimateFailed } = useQuery({
     queryKey: ["attachmentEstimate", newFiles.map((a) => a.id)],
     queryFn: () => estimateAttachments(newFiles),
     enabled: newFiles.length > 0,
     staleTime: Infinity,
   });
 
+  const question = useDeferredValue(content.trim());
+  const folderTokens = useMemo(
+    () => folder && question ? estimateTokens(searchFolder(folder, question)) : 0,
+    [folder, question],
+  );
   const count = countContext({
     isNew,
+    folderTokens,
     model,
     content,
     usage: chatContext?.usage ?? null,
@@ -117,11 +127,21 @@ export function ContextCounter({
     `History ${approx(count.historyExact)}${format(count.history)}`,
     `Prompt ≈${format(count.prompt)}`,
   ];
-  if (count.attachmentCount > 0) {
+  if (count.attachmentCount > 0 && !fileEstimates) {
+    parts.push(estimateFailed ? "Attachment estimate unavailable" : "Estimating attachments…");
+  } else if (count.attachmentCount > 0) {
     parts.push(
       `Attachments ≈${format(count.attachments)} (${count.attachmentCount} ${count.attachmentCount === 1 ? "file" : "files"})`,
     );
   }
+  if (chatContext?.attachmentCount) {
+    parts.push(`Saved attachments ≈${format(chatContext.attachmentTokens ?? 0)} (${chatContext.attachmentCount} in chat)`);
+  }
+  if (folderTokens) parts.push(`Folder excerpts ≈${format(folderTokens)}`);
+  else if (chatContext?.usage?.folderTokens) {
+    parts.push(`Folder excerpts last turn ≈${format(chatContext.usage.folderTokens)}`);
+  }
+  const waitingForEstimate = newFiles.length > 0 && !fileEstimates;
   const limitText =
     count.limit > 0
       ? ` of ${approx(count.limitExact)}${format(count.limit)}`
@@ -142,8 +162,7 @@ export function ContextCounter({
       className={`mt-1 px-3 text-xs tabular-nums ${color}`}
     >
       <span>
-        {parts.join(" · ")} · {approx(totalExact)}
-        {format(count.total)}
+        {parts.join(" · ")} · {waitingForEstimate ? (estimateFailed ? "Total unavailable" : "Total pending") : approx(totalExact) + format(count.total)}
         {limitText}
       </span>
       {warning && (
@@ -164,10 +183,12 @@ export function ContextCounter({
 }
 
 interface CountInput {
+  folderTokens?: number;
   isNew: boolean;
   model?: string;
   content: string;
   usage: {
+    folderTokens?: number;
     model: string;
     prompt: number;
     reply: number;
@@ -195,10 +216,11 @@ export function countContext(input: CountInput): ContextCount {
   const sameModel = !input.isNew && !!usage && usage.model === input.model;
   const sameSetting = sameModel && usage!.configured === input.configured;
 
+  const previousExcerpts = input.content.trim() ? usage?.folderTokens ?? 0 : 0;
   const history = input.isNew
     ? 0
     : sameModel
-      ? usage!.prompt + usage!.reply
+      ? Math.max(0, usage!.prompt - previousExcerpts) + usage!.reply
       : input.estimate;
   const paired = !!input.paired;
   // What the engine will be asked for. This computer's default comes from
@@ -223,11 +245,11 @@ export function countContext(input: CountInput): ContextCount {
 
   return {
     history,
-    historyExact: input.isNew || sameModel,
+    historyExact: input.isNew || (sameModel && previousExcerpts === 0),
     prompt,
     attachments: input.attachments,
     attachmentCount: input.attachmentCount,
-    total: history + prompt + input.attachments,
+    total: history + prompt + input.attachments + (input.folderTokens ?? 0),
     limit,
     limitExact,
     // Raising the context length may have fixed it.

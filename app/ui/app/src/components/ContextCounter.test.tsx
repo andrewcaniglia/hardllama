@@ -110,6 +110,12 @@ describe("countContext", () => {
     ).toMatchObject({ limit: 0 });
   });
 
+  it("replaces the previous folder excerpts when estimating the next turn", () => {
+    const result = countContext({ ...base, usage: { ...usage, folderTokens: 500 },
+      content: "abcd", folderTokens: 750 });
+    expect(result).toMatchObject({ history: 2340, historyExact: false, total: 3091 });
+  });
+
   it("counts nothing for a new chat but what's typed", () => {
     const c = countContext({
       ...base,

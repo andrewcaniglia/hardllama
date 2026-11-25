@@ -1103,6 +1103,7 @@ function ChatForm({
       </div>
 
       <ContextCounter
+        folder={folder}
         chatId={chatId}
         model={selectedModel?.model}
         content={message.content}

@@ -99,25 +99,25 @@ func (s *Server) getContextUsage(w http.ResponseWriter, r *http.Request) error {
 	}
 	resp := responses.ContextUsageResponse{Usage: u}
 	if chat, err := s.Store.Chat(id); err == nil {
-		resp.Estimate = estimateChat(chat)
+		estimateChat(chat, &resp)
 	}
 	return writeJSON(w, http.StatusOK, resp)
 }
 
 // estimateChat guesses the tokens in a chat as it would be sent, for when
 // the engine hasn't counted it with the current model.
-func estimateChat(chat *store.Chat) int {
-	total := 0
+func estimateChat(chat *store.Chat, resp *responses.ContextUsageResponse) {
 	for _, m := range chat.Messages {
-		total += estimateTokens(m.Content) + estimateTokens(m.Thinking)
+		resp.Estimate += estimateTokens(m.Content) + estimateTokens(m.Thinking)
 		if m.Role != "user" {
 			continue
 		}
 		for _, a := range m.Attachments {
-			total += estimateAttachment(a.Filename, a.Data)
+			resp.AttachmentCount++
+			resp.AttachmentTokens += estimateAttachment(a.Filename, a.Data)
 		}
 	}
-	return total
+	resp.Estimate += resp.AttachmentTokens
 }
 
 func estimateAttachment(filename string, data []byte) int {

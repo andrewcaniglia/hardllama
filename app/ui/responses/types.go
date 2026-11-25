@@ -203,7 +203,9 @@ type ContextUsageResponse struct {
 	Usage *store.ContextUsage `json:"usage"`
 	// Estimate guesses the chat's tokens, for when Usage is missing or was
 	// counted with another model.
-	Estimate int `json:"estimate"`
+	Estimate         int `json:"estimate"`
+	AttachmentTokens int `json:"attachmentTokens"`
+	AttachmentCount  int `json:"attachmentCount"`
 }
 
 // ModelContextLengthResponse is the most context a model supports, 0 if

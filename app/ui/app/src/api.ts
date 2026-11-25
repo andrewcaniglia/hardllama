@@ -889,6 +889,7 @@ export const setLockDelay = (seconds: number) =>
 // The context counter.
 
 export interface ContextUsage {
+  folderTokens?: number;
   model: string;
   prompt: number;
   reply: number;
@@ -899,6 +900,8 @@ export interface ContextUsage {
 }
 
 export interface ChatContext {
+  attachmentCount?: number;
+  attachmentTokens?: number;
   usage: ContextUsage | null;
   estimate: number;
 }

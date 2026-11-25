@@ -1358,10 +1358,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 			if res.Done {
 				finished = true
 				usage = &store.ContextUsage{
-					Model:    req.Model,
-					Prompt:   res.PromptEvalCount,
-					Reply:    res.EvalCount,
-					Messages: len(chatReq.Messages),
+					Model:        req.Model,
+					Prompt:       res.PromptEvalCount,
+					FolderTokens: estimateTokens(req.FolderContext),
+					Reply:        res.EvalCount,
+					Messages:     len(chatReq.Messages),
 				}
 				// What was asked for, when it can't be looked up.
 				if n, ok := chatReq.Options["num_ctx"].(int); ok {
