@@ -329,6 +329,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/v1/chat/{id}/folder", handle(s.chatFolder))
 	mux.Handle("GET /api/v1/chat/{id}/context", handle(s.getContextUsage))
 	mux.Handle("GET /api/v1/chat/{id}/finishing", handle(s.getReplyFinishing))
+	mux.Handle("POST /api/v1/folder-pdf", handle(s.extractFolderPDF))
 	mux.Handle("POST /api/v1/estimate-attachments", handle(s.estimateAttachments))
 	mux.Handle("GET /api/v1/model-context-length", handle(s.getModelContextLength))
 

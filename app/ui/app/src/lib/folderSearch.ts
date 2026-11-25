@@ -1,3 +1,4 @@
+import { API_BASE } from "./config";
 // Rebuild the in-memory ranking data from the encrypted snapshot when a chat opens.
 interface Passage {
   filename: string;
@@ -53,12 +54,27 @@ export function restoreFolder(snapshot: FolderSnapshot): FolderIndex {
   return index;
 }
 
+async function readFolderPDF(file: File, signal: AbortSignal): Promise<string> {
+  const response = await fetch(`${API_BASE}/api/v1/folder-pdf`, {
+    method: "POST",
+    body: file,
+    headers: { "Content-Type": "application/pdf" },
+    signal,
+  });
+  if (response.status === 422) return "";
+  if (!response.ok)
+    throw new Error(
+      "Could not read the PDF through the desktop app. Try selecting the folder again.",
+    );
+  return (await response.json()).text;
+}
+
 export async function indexFolder(
   files: FileList | File[],
   signal: AbortSignal,
 ): Promise<FolderIndex> {
   const index: FolderIndex = {
-    name: files[0]?.webkitRelativePath.split("/")[0] || "Folder",
+    name: files[0]?.webkitRelativePath?.split("/")[0] || "Folder",
     files: 0,
     skipped: 0,
     passages: [],
@@ -68,36 +84,41 @@ export async function indexFolder(
   for (const file of Array.from(files)) {
     signal.throwIfAborted();
     const path =
-      file.webkitRelativePath.split("/").slice(1).join("/") || file.name;
+      file.webkitRelativePath?.split("/").slice(1).join("/") || file.name;
+    const pdf = /\.pdf$/i.test(path);
     if (
       path.split("/").some((p) => p.startsWith(".") || p === "node_modules") ||
-      !/\.(txt|md|markdown|csv|tsv|jsonl?|ya?ml|toml|xml|html?|css|[jt]sx?|py|go|rs|java|cpp|c|h|sh|log)$/i.test(
+      !/\.(pdf|txt|md|markdown|csv|tsv|jsonl?|ya?ml|toml|xml|html?|css|[jt]sx?|py|go|rs|java|cpp|c|h|sh|log)$/i.test(
         path,
       ) ||
-      file.size > 2 * 1024 * 1024
+      file.size > (pdf ? 10 : 2) * 1024 * 1024
     ) {
       index.skipped++;
       continue;
     }
-    bytes += file.size;
-    if (bytes > 24 * 1024 * 1024)
-      throw new Error(
-        "Choose a smaller folder (24 MiB of searchable text per folder).",
-      );
     let text: string;
-    try {
-      text = new TextDecoder("utf-8", { fatal: true }).decode(
-        await file.arrayBuffer(),
-      );
-    } catch {
-      index.skipped++;
-      continue;
+    if (pdf) {
+      text = await readFolderPDF(file, signal);
+    } else {
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(
+          await file.arrayBuffer(),
+        );
+      } catch {
+        index.skipped++;
+        continue;
+      }
     }
     signal.throwIfAborted();
     if (!text.trim() || text.includes("\0")) {
       index.skipped++;
       continue;
     }
+    bytes += pdf ? new TextEncoder().encode(text).length : file.size;
+    if (bytes > 24 * 1024 * 1024)
+      throw new Error(
+        "Choose a smaller folder (24 MiB of searchable text per folder).",
+      );
     index.files++;
     for (let start = 0; start < text.length; ) {
       const end = Math.min(start + 1200, text.length);
@@ -108,7 +129,9 @@ export async function indexFolder(
     }
   }
   if (!index.files)
-    throw new Error("No searchable UTF-8 text files found in this folder.");
+    throw new Error(
+      "No searchable text found. Use supported text files or PDFs with selectable text.",
+    );
   return index;
 }
 

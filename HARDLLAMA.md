@@ -50,7 +50,7 @@ Open **Export chat** in the upper-right corner, choose whether to include reason
 
 Click the folder icon beside the attachment button and choose a folder. Each question searches the filenames and text of the selected files, including subfolders. HardLlama sends up to four matching passages with the question and asks the model to cite the relative filenames. When using a paired computer, that computer receives those passages.
 
-Folder search works offline with UTF-8 text, Markdown, CSV, JSON, and common source files. It skips hidden entries, node_modules, unsupported formats (including PDFs), and files over 2 MiB. A folder can contain up to 24 MiB of eligible text. Saved chats keep an encrypted snapshot of the indexed passages. Reopening a chat restores its folder knowledge, even if the original files have moved. Private chats keep their snapshots in memory until HardLlama locks or quits. Choose the folder again to refresh it, or click **Remove folder** to detach it.
+Folder search works offline with text-based PDFs, UTF-8 text, Markdown, CSV, JSON, and common source files. It skips hidden entries, node_modules, unsupported formats, and PDFs without extractable text. PDFs can be up to 10 MiB each and other files up to 2 MiB each. Image-only scans need OCR before indexing. A folder can contain up to 24 MiB of eligible text. Saved chats keep an encrypted snapshot of the indexed passages. Reopening a chat restores its folder knowledge, even if the original files have moved. Private chats keep their snapshots in memory until HardLlama locks or quits. Choose the folder again to refresh it, or click **Remove folder** to detach it.
 
 ## Locking
 
