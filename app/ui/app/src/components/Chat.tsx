@@ -1,3 +1,4 @@
+import { ErrorMessage } from "./ErrorMessage";
 import MessageList from "./MessageList";
 import ChatForm from "./ChatForm";
 import { FileUpload } from "./FileUpload";
@@ -33,7 +34,7 @@ export default function Chat({ chatId }: { chatId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const chatQuery = useChat(chatId === "new" ? "" : chatId);
-  const chatErrorQuery = useChatError(chatId === "new" ? "" : chatId);
+  const chatErrorQuery = useChatError(chatId);
   const replyFinishing = useReplyFinishing(chatId === "new" ? "" : chatId);
   const { selectedModel } = useSelectedModel(chatId);
   const hasVisionCapability = useHasVisionCapability(selectedModel?.model);
@@ -188,7 +189,7 @@ export default function Chat({ chatId }: { chatId: string }) {
 
   const clearChatError = () => {
     queryClient.setQueryData(
-      ["chatError", chatId === "new" ? "" : chatId],
+      ["chatError", chatId],
       null,
     );
   };
@@ -204,6 +205,7 @@ export default function Chat({ chatId }: { chatId: string }) {
       {chatId === "new" ? (
         <div className="flex flex-col h-screen justify-center relative">
           <div className="px-6">
+            {chatError && <ErrorMessage error={chatError} />}
             <ChatForm
               hasMessages={false}
               onSubmit={handleChatFormSubmit}

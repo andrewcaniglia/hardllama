@@ -59,6 +59,8 @@ var OllamaDotCom = func() string {
 	return "https://ollama.com"
 }()
 
+var chatKeepAliveInterval = 15 * time.Second
+
 type statusRecorder struct {
 	http.ResponseWriter
 	code int
@@ -937,6 +939,24 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 		return errors.New("streaming not supported")
 	}
 
+	encoder := json.NewEncoder(w)
+	var streamMu sync.Mutex
+	var lastStreamWrite atomic.Int64
+	lastStreamWrite.Store(time.Now().UnixNano())
+
+	writeEvent := func(v any) error {
+		streamMu.Lock()
+		defer streamMu.Unlock()
+
+		if err := encoder.Encode(v); err != nil {
+			return err
+		}
+
+		flusher.Flush()
+		lastStreamWrite.Store(time.Now().UnixNano())
+		return nil
+	}
+
 	if r.Method != "POST" {
 		return not.Found
 	}
@@ -1054,13 +1074,12 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 
 	if createdChat {
 		// send message to the client that the chat has been created
-		if err := json.NewEncoder(w).Encode(responses.ChatEvent{
+		if err := writeEvent(responses.ChatEvent{
 			EventName: "chat_created",
 			ChatID:    &cid,
 		}); err != nil {
 			return err
 		}
-		flusher.Flush()
 	}
 
 	// Leaving the chat stops the reply, unless chats locked while it was
@@ -1074,6 +1093,40 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 		}
 	})
 	defer stopWatching()
+	keepaliveCtx, cancelKeepalive := context.WithCancel(ctx)
+
+	keepaliveDone := make(chan struct{})
+	go func() {
+		defer close(keepaliveDone)
+
+		ticker := time.NewTicker(chatKeepAliveInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-keepaliveCtx.Done():
+				return
+			case <-ticker.C:
+				lastWrite := time.Unix(0, lastStreamWrite.Load())
+				if time.Since(lastWrite) < chatKeepAliveInterval {
+					continue
+				}
+
+				if err := writeEvent(responses.ChatEvent{
+					EventName: string(EventLoading),
+				}); err != nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	// Wait for any in-flight heartbeat before emitting a terminal event.
+	stopKeepalive := func() {
+		cancelKeepalive()
+		<-keepaliveDone
+	}
+	defer stopKeepalive()
 
 	_, cancelLoading := context.WithCancel(ctx)
 	loading := false
@@ -1112,23 +1165,22 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 					Done:      false,
 				}
 
-				if err := json.NewEncoder(w).Encode(progressEvent); err != nil {
+				if err := writeEvent(progressEvent); err != nil {
 					return err
 				}
-				flusher.Flush()
 			}
 			return nil
 		})
 		if err != nil {
 			s.log().Error("model download error", "error", err, "model", req.Model)
 			errorEvent := s.getError(err)
-			json.NewEncoder(w).Encode(errorEvent)
-			flusher.Flush()
+			stopKeepalive()
+			writeEvent(errorEvent)
 			cancelLoading()
 			return fmt.Errorf("failed to download model: %w", err)
 		}
 
-		if err := json.NewEncoder(w).Encode(responses.DownloadEvent{
+		if err := writeEvent(responses.DownloadEvent{
 			EventName: string(EventDownload),
 			Completed: largestTotal,
 			Total:     largestTotal,
@@ -1137,12 +1189,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 			cancelLoading()
 			return err
 		}
-		flusher.Flush()
 
 		// If forceUpdate, we're done after updating the model
 		if req.ForceUpdate {
-			json.NewEncoder(w).Encode(responses.ChatEvent{EventName: "done"})
-			flusher.Flush()
+			stopKeepalive()
+			if err := writeEvent(responses.ChatEvent{EventName: "done"}); err != nil {
+				cancelLoading()
+				return err
+			}
 			cancelLoading()
 			return nil
 		}
@@ -1156,8 +1210,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 
 	if err != nil || details == nil {
 		errorEvent := s.getError(err)
-		json.NewEncoder(w).Encode(errorEvent)
-		flusher.Flush()
+		stopKeepalive()
+		writeEvent(errorEvent)
 		s.log().Error("failed to show model details", "error", err, "model", req.Model)
 		return nil
 	}
@@ -1236,8 +1290,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 			keepGoing.Store(true)
 			// The window shows the lock screen, so it's done with this
 			// reply. Nothing more is sent to it.
-			json.NewEncoder(w).Encode(responses.ChatEvent{EventName: "done"})
-			flusher.Flush()
+			stopKeepalive()
+			writeEvent(responses.ChatEvent{EventName: "done"})
 			// Don't keep the chat readable in memory while locked.
 			req.FolderContext = ""
 			chat.Messages = nil
@@ -1293,6 +1347,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 			chatReq.Messages = append([]api.Message{{Role: "system", Content: system}}, chatReq.Messages...)
 		}
 
+		finished := false
 		err = c.Chat(ctx, chatReq, afterLock.wrap(func(res api.ChatResponse) error {
 			if loading {
 				// Remove the loading indicator on first token
@@ -1301,6 +1356,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 			}
 
 			if res.Done {
+				finished = true
 				usage = &store.ContextUsage{
 					Model:    req.Model,
 					Prompt:   res.PromptEvalCount,
@@ -1343,8 +1399,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 				thinkingTimeEnd = &now
 			}
 
-			json.NewEncoder(w).Encode(chatEventFromApiChatResponse(res, thinkingTimeStart, thinkingTimeEnd))
-			flusher.Flush()
+			if err := writeEvent(chatEventFromApiChatResponse(res, thinkingTimeStart, thinkingTimeEnd)); err != nil {
+				return err
+			}
 
 			switch event {
 			case EventToolCall:
@@ -1427,21 +1484,23 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 
 						// Emit tool error event
 						toolResult := true
-						json.NewEncoder(w).Encode(responses.ChatEvent{
+						if err := writeEvent(responses.ChatEvent{
 							EventName: "tool",
 							Content:   &errContent,
 							ToolName:  &toolCall.Function.Name,
-						})
-						flusher.Flush()
+						}); err != nil {
+							return err
+						}
 
-						json.NewEncoder(w).Encode(responses.ChatEvent{
+						if err := writeEvent(responses.ChatEvent{
 							EventName:      "tool_result",
 							Content:        &errContent,
 							ToolName:       &toolCall.Function.Name,
 							ToolResult:     &toolResult,
 							ToolResultData: nil, // No result data for errors
-						})
-						flusher.Flush()
+						}); err != nil {
+							return err
+						}
 						continue
 					}
 
@@ -1488,12 +1547,13 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 
 					// Emit tool message event (matching agent pattern)
 					toolResult := true
-					json.NewEncoder(w).Encode(responses.ChatEvent{
+					if err := writeEvent(responses.ChatEvent{
 						EventName: "tool",
 						Content:   &content,
 						ToolName:  &toolCall.Function.Name,
-					})
-					flusher.Flush()
+					}); err != nil {
+						return err
+					}
 
 					var toolState any = nil
 					if browser != nil {
@@ -1501,15 +1561,16 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 					}
 					// Stream tool result to frontend
 
-					json.NewEncoder(w).Encode(responses.ChatEvent{
+					if err := writeEvent(responses.ChatEvent{
 						EventName:      "tool_result",
 						Content:        &content,
 						ToolName:       &toolCall.Function.Name,
 						ToolResult:     &toolResult,
 						ToolResultData: result,
 						ToolState:      toolState,
-					})
-					flusher.Flush()
+					}); err != nil {
+						return err
+					}
 				}
 
 			case EventChat:
@@ -1598,11 +1659,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 			afterLock.finish()
 			return nil
 		}
+		if err == nil && !finished {
+			err = errors.New("The model connection closed before the reply finished.")
+		}
 		if err != nil {
 			s.log().Error("chat stream error", "error", err)
 			errorEvent := s.getError(err)
-			json.NewEncoder(w).Encode(errorEvent)
-			flusher.Flush()
+			stopKeepalive()
+			writeEvent(errorEvent)
 			return nil
 		}
 
@@ -1640,8 +1704,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	json.NewEncoder(w).Encode(responses.ChatEvent{EventName: "done"})
-	flusher.Flush()
+	stopKeepalive()
+	if err := writeEvent(responses.ChatEvent{EventName: "done"}); err != nil {
+		return err
+	}
 
 	if len(chat.Messages) > 0 {
 		chat.Messages[len(chat.Messages)-1].Stream = false
@@ -1812,8 +1878,13 @@ func chatEventFromApiChatResponse(res api.ChatResponse, thinkingTimeStart *time.
 		thinking = &res.Message.Thinking
 	}
 
+	eventName := "chat"
+	if res.Message.Content == "" && res.Message.Thinking != "" {
+		eventName = "thinking"
+	}
+
 	return responses.ChatEvent{
-		EventName:         "chat",
+		EventName:         eventName,
 		Content:           content,
 		Thinking:          thinking,
 		ThinkingTimeStart: thinkingTimeStart,

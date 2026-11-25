@@ -388,6 +388,71 @@ export async function changeVaultPassword(
 
 export type ChatEventUnion = ChatEvent | DownloadEvent | ErrorEvent;
 
+const chatEventNames = new Set([
+  "chat",
+  "thinking",
+  "loading",
+  "assistant_with_tools",
+  "tool_call",
+  "tool",
+  "tool_result",
+  "download",
+  "error",
+  "done",
+  "chat_created",
+]);
+
+async function getChatErrorEvent(response: Response): Promise<ErrorEvent> {
+  let errorMessage =
+    `Request failed: ${response.status} ${response.statusText}`.trim();
+  let code: string | undefined;
+  let details: string | undefined;
+
+  try {
+    const raw = (await response.text()).trim();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as {
+          error?: unknown;
+          code?: unknown;
+          details?: unknown;
+        };
+
+        if (typeof parsed.error === "string" && parsed.error.trim()) {
+          errorMessage = parsed.error.trim();
+        } else {
+          errorMessage = raw;
+        }
+
+        if (typeof parsed.code === "string" && parsed.code.trim()) {
+          code = parsed.code.trim();
+        }
+
+        if (typeof parsed.details === "string" && parsed.details.trim()) {
+          details = parsed.details.trim();
+        }
+      } catch {
+        errorMessage = raw;
+      }
+    }
+  } catch {
+    // Fall back to status-derived message when the response body can't be read.
+  }
+
+  const requestId = response.headers.get("X-Request-ID");
+  if (requestId) {
+    const requestDetails = `Request ID: ${requestId}`;
+    details = details ? `${details}\n${requestDetails}` : requestDetails;
+  }
+
+  return new ErrorEvent({
+    eventName: "error",
+    error: errorMessage,
+    ...(code ? { code } : {}),
+    ...(details ? { details } : {}),
+  });
+}
+
 export async function* sendMessage(
   chatId: string,
   message: string,
@@ -439,19 +504,61 @@ export async function* sendMessage(
     signal,
   });
 
-  for await (const event of parseJsonlFromResponse<ChatEventUnion>(response)) {
-    switch (event.eventName) {
-      case "download":
-        yield new DownloadEvent(event);
-        break;
-      case "error":
-        yield new ErrorEvent(event);
-        break;
-      default:
-        yield new ChatEvent(event);
-        break;
-    }
+  if (!response.ok) {
+    yield await getChatErrorEvent(response);
+    return;
   }
+
+  try {
+    for await (const rawEvent of parseJsonlFromResponse<Record<string, unknown>>(
+      response, true,
+    )) {
+      const eventName =
+        rawEvent && typeof rawEvent.eventName === "string"
+          ? rawEvent.eventName
+          : undefined;
+
+      if (!eventName || !chatEventNames.has(eventName)) {
+        if (typeof rawEvent?.error === "string" && rawEvent.error.trim()) {
+          yield new ErrorEvent({
+            eventName: "error",
+            error: rawEvent.error.trim(),
+            ...(typeof rawEvent.code === "string" ? { code: rawEvent.code } : {}),
+            ...(typeof rawEvent.details === "string"
+              ? { details: rawEvent.details }
+              : {}),
+          });
+        } else {
+          yield new ErrorEvent({
+            eventName: "error",
+            error: "Received an invalid response from the chat server",
+          });
+        }
+        return;
+      }
+
+      switch (eventName) {
+        case "download":
+          yield new DownloadEvent(rawEvent);
+          break;
+        case "error":
+          yield new ErrorEvent(rawEvent);
+          return;
+        default:
+          yield new ChatEvent(rawEvent);
+          if (eventName === "done") return;
+          break;
+      }
+    }
+  } catch (error) {
+    if (signal?.aborted) return;
+    yield new ErrorEvent({
+      eventName: "error",
+      error: error instanceof Error ? error.message : "The chat stream was interrupted.",
+    });
+    return;
+  }
+  if (!signal?.aborted) yield new ErrorEvent({ eventName: "error", error: "The connection closed before the reply finished." });
 }
 
 export async function getSettings(): Promise<{

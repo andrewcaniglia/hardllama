@@ -1,5 +1,6 @@
 export async function* parseJsonlFromStream<T>(
   stream: ReadableStream<Uint8Array>,
+  strict = false,
 ): AsyncGenerator<T, void, unknown> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -14,8 +15,9 @@ export async function* parseJsonlFromStream<T>(
         if (buffer.trim()) {
           try {
             yield JSON.parse(buffer.trim());
-          } catch (error) {
-            console.error(`Failed to parse final buffer: ${buffer}`, error);
+          } catch {
+            if (strict) throw new Error("Invalid data in the chat response.");
+            console.error("Invalid final JSON frame");
           }
         }
         break;
@@ -33,8 +35,9 @@ export async function* parseJsonlFromStream<T>(
         if (trimmed) {
           try {
             yield JSON.parse(trimmed);
-          } catch (error) {
-            console.error(`Failed to parse line: ${trimmed}`, error);
+          } catch {
+            if (strict) throw new Error("Invalid data in the chat response.");
+            console.error("Invalid JSON frame");
           }
         }
       }
@@ -49,9 +52,10 @@ export async function* parseJsonlFromStream<T>(
  */
 export async function* parseJsonlFromResponse<T>(
   response: Response,
+  strict = false,
 ): AsyncGenerator<T, void, unknown> {
   if (!response.body) {
     throw new Error("Response body is null");
   }
-  yield* parseJsonlFromStream<T>(response.body);
+  yield* parseJsonlFromStream<T>(response.body, strict);
 }
