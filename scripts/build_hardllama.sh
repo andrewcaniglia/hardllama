@@ -62,6 +62,7 @@ rm -rf "$OUT"
 mkdir -p dist
 ditto "$BASE" "$OUT"
 cp app/darwin/Ollama.app/Contents/Resources/icon.icns "$OUT/Contents/Resources/icon.icns"
+cp app/darwin/Ollama.app/Contents/Resources/ollama*.png "$OUT/Contents/Resources/"
 cp "$WORK/app" "$OUT/Contents/MacOS/Ollama"
 cp "$WORK/app" "$OUT/Contents/Frameworks/Squirrel.framework/Versions/A/Squirrel"
 
