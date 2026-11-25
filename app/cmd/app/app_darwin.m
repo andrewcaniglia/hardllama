@@ -1844,6 +1844,19 @@ decidePolicyForNavigationAction:(WKNavigationAction *)action
     completionHandler([alert runModal] == NSAlertFirstButtonReturn);
 }
 
+- (void)webView:(WKWebView *)webView
+    runOpenPanelWithParameters:(WKOpenPanelParameters *)parameters
+    initiatedByFrame:(WKFrameInfo *)frame
+    completionHandler:(void (^)(NSArray<NSURL *> *))completionHandler {
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseDirectories = parameters.allowsDirectories;
+    panel.canChooseFiles = !parameters.allowsDirectories;
+    panel.allowsMultipleSelection = !parameters.allowsDirectories && parameters.allowsMultipleSelection;
+    [panel beginSheetModalForWindow:webView.window completionHandler:^(NSModalResponse response) {
+        completionHandler(response == NSModalResponseOK ? panel.URLs : nil);
+    }];
+}
+
 // HACK (jmorganca): remove the "Copy Link with Highlight" item from the context menu by
 // swizzling the WKWebView's willOpenMenu:withEvent: method. In the future we should probably
 // subclass the WKWebView and override the context menu items, but this is a quick fix for now.

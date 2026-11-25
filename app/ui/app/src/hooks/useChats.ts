@@ -1,3 +1,4 @@
+import { searchFolder, snapshotFolder, type FolderIndex } from "@/lib/folderSearch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getChats, getChat, sendMessage, type ChatEventUnion } from "../api";
 import { Chat, ErrorEvent, Model } from "@/gotypes";
@@ -317,6 +318,7 @@ export const useSendMessage = (chatId: string) => {
         return newMap;
       });
 
+      const folder = queryClient.getQueryData<FolderIndex>(["chat", chatId, "folder"]);
       const events = sendMessage(
         chatId,
         message,
@@ -329,6 +331,8 @@ export const useSendMessage = (chatId: string) => {
         forceUpdate,
         think,
         isPrivate,
+        folder && !forceUpdate ? searchFolder(folder, message) : undefined,
+        folder && chatId === "new" && !forceUpdate ? snapshotFolder(folder) : undefined,
       );
       let currentChatId = chatId;
       let isCancelled = false;
@@ -672,6 +676,14 @@ export const useSendMessage = (chatId: string) => {
           case "chat_created": {
             if (!event.chatId) break;
             const newId = event.chatId;
+            if (chatId === "new") {
+              const key = ["chat", "new", "folder"];
+              const folder = queryClient.getQueryData(key);
+              if (folder) {
+                queryClient.setQueryData(["chat", newId, "folder"], folder);
+                queryClient.setQueryData(key, null);
+              }
+            }
             updatableChatId = newId;
             setStreamingChatIds((prev: Set<string>) => {
               const newSet = new Set(prev);

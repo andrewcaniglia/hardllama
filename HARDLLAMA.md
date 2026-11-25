@@ -42,6 +42,12 @@ Databases from earlier HardLlama versions only encrypted chat content. The first
 
 Encryption uses AES-256-GCM with a random key. That key is stored wrapped by a key derived from your password with Argon2id, and only exists unwrapped in memory while the app is unlocked.
 
+## Searching a folder in chat
+
+Click the folder icon beside the attachment button and choose a folder. Each question searches the filenames and text of the selected files, including subfolders. HardLlama sends up to four matching passages with the question and asks the model to cite the relative filenames. When using a paired computer, that computer receives those passages.
+
+Folder search works offline with UTF-8 text, Markdown, CSV, JSON, and common source files. It skips hidden entries, node_modules, unsupported formats (including PDFs), and files over 2 MiB. A folder can contain up to 24 MiB of eligible text. Saved chats keep an encrypted snapshot of the indexed passages. Reopening a chat restores its folder knowledge, even if the original files have moved. Private chats keep their snapshots in memory until HardLlama locks or quits. Choose the folder again to refresh it, or click **Remove folder** to detach it.
+
 ## Locking
 
 The app locks when you quit, lock your screen, your Mac sleeps, after 15 minutes without typing or clicking in it, or when you click **Lock now** in Settings. It also locks shortly after you switch to another app or close its window, unless you come back first. Choose how long, from instantly to 1 minute, under **Lock after leaving** in Settings.

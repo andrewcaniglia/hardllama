@@ -1,3 +1,4 @@
+import { restoreFolder, snapshotFolder, type FolderIndex, type FolderSnapshot } from "./lib/folderSearch";
 import {
   ChatResponse,
   ChatsResponse,
@@ -399,6 +400,8 @@ export async function* sendMessage(
   forceUpdate?: boolean,
   think?: boolean | string,
   isPrivate?: boolean,
+  folderContext?: string,
+  folderSnapshot?: FolderSnapshot,
 ): AsyncGenerator<ChatEventUnion> {
   // Convert Uint8Array to base64 for JSON serialization
   const serializedAttachments = attachments?.map((att) => ({
@@ -417,7 +420,8 @@ export async function* sendMessage(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(
-      new ChatRequest({
+      { ...new ChatRequest({
+        folderContext,
         model: model.model,
         prompt: message,
         ...(index !== undefined ? { index } : {}),
@@ -430,7 +434,7 @@ export async function* sendMessage(
         ...(forceUpdate !== undefined ? { forceUpdate } : {}),
         ...(shouldSendThink ? { think } : {}),
         ...(isPrivate ? { private: true } : {}),
-      }),
+      }), folderSnapshot },
     ),
     signal,
   });
@@ -841,3 +845,15 @@ export const setCustomInstructions = (instructions: string) =>
     method: "PUT",
     body: JSON.stringify({ instructions }),
   });
+
+export async function getChatFolder(chatId: string, signal: AbortSignal) {
+  const snapshot = await jsonRequest<FolderSnapshot | null>(
+    `/api/v1/chat/${encodeURIComponent(chatId)}/folder`, { signal });
+  return snapshot ? restoreFolder(snapshot) : null;
+}
+
+export function saveChatFolder(chatId: string, folder: FolderIndex | null, signal: AbortSignal) {
+  return jsonRequest<null>(`/api/v1/chat/${encodeURIComponent(chatId)}/folder`, {
+    method: "PUT", body: JSON.stringify(folder ? snapshotFolder(folder) : null), signal,
+  });
+}

@@ -3,6 +3,7 @@
 package responses
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/ollama/ollama/app/store"
@@ -119,15 +120,17 @@ type Attachment struct {
 }
 
 type ChatRequest struct {
-	Model       string       `json:"model"`
-	Prompt      string       `json:"prompt"`
-	Index       *int         `json:"index,omitempty"`
-	Attachments []Attachment `json:"attachments,omitempty"`
-	WebSearch   *bool        `json:"web_search,omitempty"`
-	FileTools   *bool        `json:"file_tools,omitempty"`
-	ForceUpdate bool         `json:"forceUpdate,omitempty"`
-	Think       any          `json:"think,omitempty"`
-	Private     bool         `json:"private,omitempty"`
+	FolderSnapshot json.RawMessage `json:"folderSnapshot,omitempty"`
+	FolderContext  string          `json:"folderContext,omitempty"`
+	Model          string          `json:"model"`
+	Prompt         string          `json:"prompt"`
+	Index          *int            `json:"index,omitempty"`
+	Attachments    []Attachment    `json:"attachments,omitempty"`
+	WebSearch      *bool           `json:"web_search,omitempty"`
+	FileTools      *bool           `json:"file_tools,omitempty"`
+	ForceUpdate    bool            `json:"forceUpdate,omitempty"`
+	Think          any             `json:"think,omitempty"`
+	Private        bool            `json:"private,omitempty"`
 }
 
 type Error struct {

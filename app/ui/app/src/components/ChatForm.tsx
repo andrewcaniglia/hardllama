@@ -1,3 +1,7 @@
+import { getChatFolder, saveChatFolder } from "@/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { FolderIcon } from "@heroicons/react/24/outline";
+import { indexFolder, type FolderIndex } from "@/lib/folderSearch";
 import Logo from "@/components/Logo";
 import { ModelPicker } from "@/components/ModelPicker";
 import { WebSearchButton } from "@/components/WebSearchButton";
@@ -102,6 +106,41 @@ function ChatForm({
     attachments: [],
     fileErrors: [],
   });
+  const queryClient = useQueryClient();
+  const folderKey = ["chat", chatId, "folder"];
+  const folderQuery = useQuery<FolderIndex | null>({
+    queryKey: folderKey, queryFn: ({signal}) => getChatFolder(chatId, signal),
+    enabled: chatId !== "new", staleTime: "static",
+  });
+  const folder = folderQuery.data;
+  const restoringFolder = chatId !== "new" && folderQuery.isPending;
+  const picker = useRef<HTMLInputElement>(null);
+  const indexing = useRef<AbortController | null>(null);
+  const [folderBusy, setFolderBusy] = useState(false);
+  const [folderError, setFolderError] = useState("");
+  useEffect(() => {
+    setFolderBusy(false);
+    setFolderError("");
+    return () => { indexing.current?.abort(); };
+  }, [chatId]);
+  async function loadFolder(files: File[] | null) {
+    if (files && !files.length) return;
+    indexing.current?.abort();
+    const controller = new AbortController();
+    indexing.current = controller;
+    setFolderBusy(true);
+    setFolderError("");
+    try {
+      const snapshot = files ? await indexFolder(files, controller.signal) : null;
+      await queryClient.cancelQueries({queryKey: folderKey, exact: true});
+      if (chatId !== "new") await saveChatFolder(chatId, snapshot, controller.signal);
+      if (!controller.signal.aborted) queryClient.setQueryData(folderKey, snapshot);
+    } catch (error) {
+      if (!controller.signal.aborted) setFolderError(error instanceof Error ? error.message : "Could not read folder.");
+    } finally {
+      if (!controller.signal.aborted) setFolderBusy(false);
+    }
+  }
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [privateEnabled, setPrivateEnabled] = useState<boolean>(false);
   const compositionEndTimeoutRef = useRef<number | null>(null);
@@ -484,7 +523,7 @@ function ChatForm({
   }, [isStreaming, editingMessage, onCancelEdit, navigateToNextElement]);
 
   const handleSubmit = async () => {
-    if (!message.content.trim() || isStreaming || isDownloading) return;
+    if (!message.content.trim() || folderBusy || restoringFolder || folderQuery.isError || isStreaming || isDownloading) return;
 
     if (cloudDisabled && selectedModel?.isCloud()) {
       return;
@@ -755,6 +794,22 @@ function ChatForm({
           // overlay to block interaction
           <div className="absolute inset-0 z-50 rounded-3xl" />
         )}
+        <input type="file" multiple hidden ref={(el) => {
+          picker.current = el;
+          el?.setAttribute("webkitdirectory", "");
+        }} onChange={(event) => {
+          const files = Array.from(event.currentTarget.files ?? []);
+          event.currentTarget.value = "";
+          void loadFolder(files);
+        }} />
+        {folder && <div className="w-full px-5 pb-2 text-xs text-neutral-500">
+          {folder.name} · {folder.files} searchable files{folder.skipped > 0 && ` · ${folder.skipped} skipped`}
+          <button type="button" className="ml-2 underline" disabled={folderBusy || isStreaming}
+            onClick={() => void loadFolder(null)}>Remove folder</button>
+        </div>}
+        {folderBusy && <p role="status">Updating chat folder…</p>}
+        {folderQuery.isError && <button onClick={() => void folderQuery.refetch()}>Could not restore chat folder. Retry</button>}
+        {folderError && <p role="alert">{folderError}</p>}
         {editingMessage && (
           <div className="w-full px-5 pb-2">
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
@@ -913,6 +968,11 @@ function ChatForm({
                 >
                   <PlusIcon className="w-4.5 h-4.5 stroke-2 text-neutral-500 dark:text-neutral-400" />
                 </button>
+                <button type="button" aria-label="Search a folder" title="Search a folder" disabled={folderBusy || isStreaming}
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white dark:bg-neutral-700"
+                  onClick={() => picker.current?.click()}>
+                  <FolderIcon className="w-5 h-5" />
+                </button>
                 {/* Thinking Level Button */}
                 {modelSupportsThinkingLevels && (
                   <>
@@ -1011,7 +1071,7 @@ function ChatForm({
               disabled={
                 !isStreaming &&
                 !isDownloading &&
-                (!message.content.trim() ||
+                (folderBusy || restoringFolder || folderQuery.isError || !message.content.trim() ||
                   shouldShowLoginBanner ||
                   (cloudDisabled && selectedModel?.isCloud()) ||
                   message.fileErrors.length > 0)

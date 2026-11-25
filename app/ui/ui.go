@@ -323,6 +323,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/v1/chat/{id}", handle(s.deleteChat))
 	mux.Handle("POST /api/v1/create-chat", handle(s.createChat))
 	mux.Handle("PUT /api/v1/chat/{id}/rename", handle(s.renameChat))
+	mux.Handle("GET /api/v1/chat/{id}/folder", handle(s.chatFolder))
+	mux.Handle("PUT /api/v1/chat/{id}/folder", handle(s.chatFolder))
 	mux.Handle("GET /api/v1/chat/{id}/context", handle(s.getContextUsage))
 	mux.Handle("GET /api/v1/chat/{id}/finishing", handle(s.getReplyFinishing))
 	mux.Handle("POST /api/v1/estimate-attachments", handle(s.estimateAttachments))
@@ -974,15 +976,6 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("empty message")
 	}
 
-	if createdChat {
-		// send message to the client that the chat has been created
-		json.NewEncoder(w).Encode(responses.ChatEvent{
-			EventName: "chat_created",
-			ChatID:    &cid,
-		})
-		flusher.Flush()
-	}
-
 	// Check if this is from a specific message index (e.g. for editing)
 	idx := -1
 	if req.Index != nil {
@@ -1049,9 +1042,25 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 			chat.Messages = append(chat.Messages, userMsg)
 		}
 
-		if err := s.Store.SetChat(*chat); err != nil {
+		var snapshot string
+		if createdChat {
+			snapshot = string(req.FolderSnapshot)
+		}
+		req.FolderSnapshot = nil
+		if err := s.Store.SetChatWithFolder(*chat, snapshot); err != nil {
 			return err
 		}
+	}
+
+	if createdChat {
+		// send message to the client that the chat has been created
+		if err := json.NewEncoder(w).Encode(responses.ChatEvent{
+			EventName: "chat_created",
+			ChatID:    &cid,
+		}); err != nil {
+			return err
+		}
+		flusher.Flush()
 	}
 
 	// Leaving the chat stops the reply, unless chats locked while it was
@@ -1230,6 +1239,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 			json.NewEncoder(w).Encode(responses.ChatEvent{EventName: "done"})
 			flusher.Flush()
 			// Don't keep the chat readable in memory while locked.
+			req.FolderContext = ""
 			chat.Messages = nil
 			if chatReq != nil {
 				chatReq.Messages = nil
@@ -1270,6 +1280,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) error {
 		chatReq, err = s.buildChatRequest(reqChat, req.Model, thinkValue, availableTools)
 		if err != nil {
 			return err
+		}
+		if req.FolderContext != "" {
+			for i := len(chatReq.Messages) - 1; i >= 0; i-- {
+				if chatReq.Messages[i].Role == "user" {
+					chatReq.Messages[i].Content += "\n\n" + req.FolderContext
+					break
+				}
+			}
 		}
 		if system != "" {
 			chatReq.Messages = append([]api.Message{{Role: "system", Content: system}}, chatReq.Messages...)

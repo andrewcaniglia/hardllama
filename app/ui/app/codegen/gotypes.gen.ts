@@ -512,6 +512,7 @@ export class Attachment {
     }
 }
 export class ChatRequest {
+    folderContext?: string;
     model: string;
     prompt: string;
     index?: number;
@@ -524,6 +525,7 @@ export class ChatRequest {
 
     constructor(source: any = {}) {
         if ('string' === typeof source) source = JSON.parse(source);
+        this.folderContext = source["folderContext"];
         this.model = source["model"];
         this.prompt = source["prompt"];
         this.index = source["index"];

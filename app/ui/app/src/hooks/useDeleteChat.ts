@@ -9,6 +9,7 @@ export function useDeleteChat() {
   return useMutation({
     mutationFn: (chatId: string) => deleteChat(chatId),
     onSuccess: (_, chatId) => {
+      queryClient.removeQueries({ queryKey: ["chat", chatId, "folder"], exact: true });
       // If we're currently viewing the deleted chat, navigate away
       const currentPath = window.location.pathname;
       if (currentPath === `/c/${chatId}`) {
