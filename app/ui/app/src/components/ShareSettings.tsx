@@ -78,7 +78,7 @@ export function ShareSettings() {
         <div className="flex items-start space-x-3 flex-1">
           <ServerStackIcon className="mt-1 h-5 w-5 flex-shrink-0 text-black dark:text-neutral-100" />
           <div>
-            <Label>Share models with my devices</Label>
+            <Label>Share models with my devices (Experimental)</Label>
             <Description>
               Let devices you pair run models on this computer. They can't see
               your chats. Sharing keeps working while HardLlama is locked.

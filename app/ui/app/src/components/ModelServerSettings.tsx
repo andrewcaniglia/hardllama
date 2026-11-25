@@ -49,7 +49,7 @@ export function ModelServerSettings() {
       <div className="flex items-start space-x-3">
         <LinkIcon className="mt-1 h-5 w-5 flex-shrink-0 text-black dark:text-neutral-100" />
         <div className="w-full">
-          <Label>Run models on another computer</Label>
+          <Label>Run models on another computer (Experimental)</Label>
           {paired ? (
             <>
               <Description>
