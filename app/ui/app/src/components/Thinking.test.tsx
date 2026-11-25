@@ -44,6 +44,16 @@ describe("Thinking", () => {
     expect(collapsedHeight(r)).toBe("0px");
   });
 
+  it("finishes the thinking indicator when a background reply starts answering", () => {
+    const r = render({ thinking: "hmm", startTime: start, streaming: true });
+    expect(label(r)).toBe("Thinking...");
+    act(() => {
+      r.update(<Thinking thinking="hmm" startTime={start}
+        endTime={new Date(start.getTime() + 4000)} streaming={true} />);
+    });
+    expect(label(r)).toBe("Thought for 4.0 seconds");
+  });
+
   it("shows how long it thought", () => {
     const r = render({
       thinking: "hmm",

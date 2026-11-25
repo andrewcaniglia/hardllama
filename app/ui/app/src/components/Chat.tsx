@@ -230,7 +230,7 @@ export default function Chat({ chatId }: { chatId: string }) {
               messages={messages}
               spacerHeight={spacerHeight}
               isWaitingForLoad={isWaitingForLoad}
-              isStreaming={isStreaming}
+              isStreaming={isStreaming || replyFinishing}
               downloadProgress={downloadProgress}
               onEditMessage={(content: string, index: number) => {
                 handleEditMessage(content, index);
