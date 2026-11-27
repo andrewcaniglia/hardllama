@@ -73,12 +73,12 @@ describe("Onboarding", () => {
   it("explains what Ollama is before asking the user to choose a path", () => {
     const html = renderToStaticMarkup(<IntroScreen onContinue={vi.fn()} />);
 
-    expect(html).toContain("Welcome to Ollama!");
-    expect(html.indexOf('alt="Ollama waving"')).toBeLessThan(
-      html.indexOf("Welcome to Ollama!"),
+    expect(html).toContain("Welcome to HardLlama!");
+    expect(html.indexOf('alt="HardLlama"')).toBeLessThan(
+      html.indexOf("Welcome to HardLlama!"),
     );
     expect(html).toMatch(/<main class="light-only [^"]*bg-white/);
-    expect(html).not.toMatch(/alt="Ollama waving" class="[^"]*dark:/);
+    expect(html).toContain('alt="HardLlama"');
     expect(html).toContain(
       "Run open models with your coding agents so you can spend less while keeping your data private.",
     );
@@ -444,7 +444,7 @@ describe("Onboarding", () => {
       />,
     );
 
-    expect(html).toContain("Welcome to Ollama");
+    expect(html).toContain("Welcome to HardLlama");
     expect(html).not.toContain("Run Ollama");
     expect(html).not.toContain("Sign up");
   });

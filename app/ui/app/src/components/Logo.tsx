@@ -1,3 +1,5 @@
+import hardllamaLogo from "../assets/hardllama.png";
+
 interface LogoProps {
   size?: number;
   containerClassName?: string;
@@ -12,7 +14,7 @@ export default function Logo({
   return (
     <div className={`flex justify-center select-none ${containerClassName}`}>
       <img
-        src="/hardllama.png"
+        src={hardllamaLogo}
         alt="HardLlama"
         width={size}
         height={size}
