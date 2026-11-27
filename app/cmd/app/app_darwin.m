@@ -437,6 +437,11 @@ static NSImage *ollamaApplicationIcon(void) {
     return [[NSImage alloc] initWithContentsOfFile:iconPath];
 }
 
+static void showInDock(void) {
+    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+    [NSApp.dockTile display];
+}
+
 - (void)application:(NSApplication *)application openURLs:(NSArray<NSURL *> *)urls {
     for (NSURL *url in urls) {
         if ([url.scheme isEqualToString:@"ollama"]) {
@@ -479,6 +484,12 @@ static NSImage *ollamaApplicationIcon(void) {
     NSImage *customIcon = ollamaApplicationIcon();
     if (customIcon != nil) {
         [NSApp setApplicationIconImage:customIcon];
+        NSDockTile *tile = NSApp.dockTile;
+        NSImageView *view = [NSImageView imageViewWithImage:customIcon];
+        view.frame = NSMakeRect(0, 0, tile.size.width, tile.size.height);
+        view.imageScaling = NSImageScaleProportionallyUpOrDown;
+        tile.contentView = view;
+        [tile display];
     }
 
     // Create status item and menu
@@ -683,7 +694,7 @@ static NSImage *ollamaApplicationIcon(void) {
         for (NSWindow *window in [NSApp windows]) {
             if ([window isVisible]) {
                 // Switch to regular activation policy since we have a visible window
-                [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+                showInDock();
                 return;
             }
         }
@@ -2486,9 +2497,8 @@ void hideWindow(uintptr_t wndPtr) {
 void showWindow(uintptr_t wndPtr) {
     NSWindow *w = (__bridge NSWindow *)wndPtr;
         
-    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-
     dispatch_async(dispatch_get_main_queue(), ^{
+        showInDock();
         [NSApp unhide:nil];
         [NSApp activateIgnoringOtherApps:YES];
         [w makeKeyAndOrderFront:nil];
