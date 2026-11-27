@@ -476,13 +476,9 @@ static NSImage *ollamaApplicationIcon(void) {
                name:NSWorkspaceWillSleepNotification
              object:nil];
 
-    // if we're in development mode, set the app icon
-    NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
-    if (![bundlePath hasSuffix:@".app"]) {
-        NSImage *customIcon = ollamaApplicationIcon();
-        if (customIcon != nil) {
-            [NSApp setApplicationIconImage:customIcon];
-        }
+    NSImage *customIcon = ollamaApplicationIcon();
+    if (customIcon != nil) {
+        [NSApp setApplicationIconImage:customIcon];
     }
 
     // Create status item and menu
